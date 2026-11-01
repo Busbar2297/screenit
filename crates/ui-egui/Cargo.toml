@@ -1,0 +1,24 @@
+[package]
+name = "screenit-ui-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-engine = { workspace = true }
+
+screenit-capture = { workspace = true }
+screenit-doc = { workspace = true }
+screenit-geom = { workspace = true }
+screenit-raster = { workspace = true }
+screenit-compose = { workspace = true }
+screenit-platform = { workspace = true }
+screenit-algo = { workspace = true }
+screenit-codecs = { workspace = true }
+screenit-format = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+eframe = { workspace = true }
+
+[lints]
+workspace = true

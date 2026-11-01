@@ -1,0 +1,16 @@
+[package]
+name = "screenit-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-geom = { workspace = true }
+screenit-raster = { workspace = true }
+screenit-doc = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+screenit-algo = { workspace = true }
+
+[lints]
+workspace = true

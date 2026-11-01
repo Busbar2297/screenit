@@ -1,0 +1,13 @@
+enforce = false
+
+[budget.fullscreen_4k_capture_to_editor_ms]
+limit = 150
+
+[budget.record_1080p60_drop_percent]
+limit = 1
+
+[budget.scroll_stitch_20_pages_ms]
+limit = 3000
+
+[budget.flatten_4k_ms]
+limit = 100

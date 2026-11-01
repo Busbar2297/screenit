@@ -1,0 +1,15 @@
+[package]
+name = "screenit-compose"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-doc = { workspace = true }
+screenit-raster = { workspace = true }
+screenit-vector = { workspace = true }
+screenit-algo = { workspace = true }
+screenit-geom = { workspace = true }
+
+[lints]
+workspace = true

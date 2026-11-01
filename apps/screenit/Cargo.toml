@@ -1,0 +1,19 @@
+[package]
+name = "screenit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-engine = { workspace = true }
+screenit-platform = { workspace = true }
+
+screenit-ui-egui = { workspace = true }
+screenit-automation = { workspace = true }
+screenit-capture = { workspace = true }
+screenit-library = { workspace = true }
+serde_json = { workspace = true }
+tray-icon = { workspace = true }
+
+[lints]
+workspace = true

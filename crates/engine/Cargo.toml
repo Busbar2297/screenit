@@ -1,0 +1,30 @@
+[package]
+name = "screenit-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-geom = { workspace = true }
+screenit-raster = { workspace = true }
+screenit-doc = { workspace = true }
+screenit-ops = { workspace = true }
+screenit-algo = { workspace = true }
+screenit-compose = { workspace = true }
+screenit-format = { workspace = true }
+screenit-capture = { workspace = true }
+screenit-record = { workspace = true }
+screenit-library = { workspace = true }
+screenit-codecs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+screenit-testkit = { workspace = true }
+
+

@@ -1,0 +1,25 @@
+[package]
+name = "screenit-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-capture = { workspace = true }
+screenit-record = { workspace = true }
+screenit-geom = { workspace = true }
+screenit-raster = { workspace = true }
+thiserror = { workspace = true }
+screenit-engine = { workspace = true }
+windows-sys = { workspace = true }
+windows = { workspace = true }
+
+[dev-dependencies]
+screenit-codecs = { workspace = true }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+wildcard_imports = "deny"
+chunks_exact_to_as_chunks = "allow"

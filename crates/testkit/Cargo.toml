@@ -1,0 +1,19 @@
+[package]
+name = "screenit-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-raster = { workspace = true }
+screenit-codecs = { workspace = true }
+screenit-capture = { workspace = true }
+screenit-geom = { workspace = true }
+
+screenit-engine = { workspace = true }
+screenit-record = { workspace = true }
+screenit-doc = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

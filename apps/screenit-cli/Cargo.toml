@@ -1,0 +1,14 @@
+[package]
+name = "screenit-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-engine = { workspace = true }
+screenit-platform = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

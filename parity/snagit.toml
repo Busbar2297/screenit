@@ -1,0 +1,786 @@
+# Snagit feature catalog. status = missing | partial | done. A `done` row must list `commands`
+# that exist in the engine registry. `cargo xtask parity` validates and generates docs/parity-checklist.md.
+# tier: 0 capture core, 1 editor+recording, 2 effects/video/library, 3 ML/optional.
+
+# ---- Capture window ----
+[[row]]
+id = "cap.mode.image"
+group = "Capture"
+title = "Image capture mode"
+tier = 0
+status = "partial"
+commands = ["capture.region"]
+[[row]]
+id = "cap.mode.video"
+group = "Capture"
+title = "Video capture mode"
+tier = 0
+status = "missing"
+[[row]]
+id = "cap.mode.allinone"
+group = "Capture"
+title = "All-in-One mode (choose image/video/scrolling after selecting)"
+tier = 0
+status = "missing"
+[[row]]
+id = "cap.sel.region"
+group = "Capture"
+title = "Region selection with crosshair, magnifier and dimensions"
+tier = 0
+status = "partial"
+commands = ["capture.region"]
+tests = ["e2e::region_capture_matches_the_fixture_pattern_exactly"]
+[[row]]
+id = "cap.sel.window"
+group = "Capture"
+title = "Window selection (snap to window)"
+tier = 0
+status = "partial"
+commands = ["capture.window", "capture.window_at"]
+tests = ["e2e::window_capture_finds_the_fixture_window"]
+[[row]]
+id = "cap.sel.fullscreen"
+group = "Capture"
+title = "Fullscreen / all monitors"
+tier = 0
+status = "partial"
+commands = ["capture.fullscreen"]
+[[row]]
+id = "cap.sel.fixed"
+group = "Capture"
+title = "Fixed size / exact dimensions"
+tier = 0
+status = "partial"
+commands = ["capture.fixed"]
+[[row]]
+id = "cap.sel.lastregion"
+group = "Capture"
+title = "Repeat last region"
+tier = 0
+status = "partial"
+commands = ["capture.last_region"]
+[[row]]
+id = "cap.sel.freehand"
+group = "Capture"
+title = "Freehand selection"
+tier = 2
+status = "partial"
+commands = ["capture.freehand"]
+[[row]]
+id = "cap.sel.scrolling.manual"
+group = "Capture"
+title = "Scrolling capture (manual, vertical/horizontal)"
+tier = 1
+status = "partial"
+commands = ["capture.scroll.begin", "capture.scroll.add_frame", "capture.scroll.finish"]
+[[row]]
+id = "cap.sel.scrolling.auto"
+group = "Capture"
+title = "Automatic scrolling capture"
+tier = 1
+status = "done"
+commands = ["capture.scroll.auto"]
+tests = ["e2e::automatic_scrolling_capture_of_a_real_window", "commands::automatic_scrolling_capture_stitches_the_whole_content"]
+[[row]]
+id = "cap.sel.menu"
+group = "Capture"
+title = "Menu capture"
+tier = 1
+status = "partial"
+commands = ["capture.menu"]
+tests = ["commands::object_menu_and_grab_text"]
+[[row]]
+id = "cap.sel.object"
+group = "Capture"
+title = "Object capture (UI element)"
+tier = 1
+status = "partial"
+commands = ["capture.object"]
+tests = ["e2e::object_capture_returns_the_element_under_the_point"]
+[[row]]
+id = "cap.sel.multiarea"
+group = "Capture"
+title = "Multiple areas in one capture"
+tier = 1
+status = "partial"
+commands = ["capture.multi_area"]
+[[row]]
+id = "cap.sel.timelapse"
+group = "Capture"
+title = "Time-lapse capture"
+tier = 3
+status = "done"
+commands = ["capture.timelapse"]
+tests = ["e2e::timelapse_records_real_screen_frames_to_mp4", "commands::timelapse_captures_n_frames_at_interval"]
+[[row]]
+id = "cap.sel.printer"
+group = "Capture"
+title = "Printer capture"
+tier = 3
+status = "missing"
+[[row]]
+id = "cap.opt.delay"
+group = "Capture"
+title = "Time delay"
+tier = 0
+status = "partial"
+commands = ["capture.region"]
+[[row]]
+id = "cap.opt.cursor"
+group = "Capture"
+title = "Include cursor (editable cursor object)"
+tier = 0
+status = "partial"
+commands = ["capture.region"]
+[[row]]
+id = "cap.opt.clipboard"
+group = "Capture"
+title = "Copy to clipboard"
+tier = 0
+status = "done"
+commands = ["capture.region", "edit.copy"]
+tests = ["commands::capture_region_then_annotate_undo_export"]
+[[row]]
+id = "cap.opt.effects"
+group = "Capture"
+title = "Capture-time effects (border, corner rounding, capture info, scale)"
+tier = 1
+status = "partial"
+commands = ["capture.region"]
+[[row]]
+id = "cap.opt.multimonitor"
+group = "Capture"
+title = "Multi-monitor and per-monitor DPI"
+tier = 0
+status = "partial"
+commands = ["capture.monitors", "capture.fullscreen"]
+tests = ["e2e::monitors_and_clipboard_work"]
+[[row]]
+id = "cap.preset"
+group = "Capture"
+title = "Capture presets with custom global hotkeys"
+tier = 0
+status = "partial"
+commands = ["capture.preset.list", "capture.preset.save", "capture.preset.run", "capture.hotkey.parse"]
+[[row]]
+id = "cap.hotkey.printscreen"
+group = "Capture"
+title = "Print Screen default hotkey and tray icon"
+tier = 0
+status = "partial"
+commands = ["capture.hotkey.parse"]
+[[row]]
+id = "cap.import"
+group = "Capture"
+title = "Import from file / clipboard"
+tier = 1
+status = "partial"
+commands = ["capture.import.file", "capture.import.clipboard"]
+[[row]]
+id = "cap.grabtext"
+group = "Capture"
+title = "Grab Text (OCR) from screen or image"
+tier = 1
+status = "done"
+commands = ["capture.grab_text"]
+tests = ["e2e::grab_text_reads_rendered_text", "commands::object_menu_and_grab_text"]
+
+# ---- Recording ----
+[[row]]
+id = "rec.region"
+group = "Recording"
+title = "Record region / window / fullscreen"
+tier = 1
+status = "done"
+commands = ["record.start", "record.stop"]
+tests = ["e2e::records_an_mp4_that_decodes_back_to_the_fixture"]
+[[row]]
+id = "rec.followwindow"
+group = "Recording"
+title = "Record single app window as it moves/resizes"
+tier = 1
+status = "partial"
+commands = ["record.start"]
+[[row]]
+id = "rec.audio.mic"
+group = "Recording"
+title = "Microphone audio"
+tier = 1
+status = "done"
+commands = ["record.start", "record.devices"]
+tests = ["commands::recording_devices_audio_and_camera_release", "audio::tests::chunks_are_contiguous_and_follow_the_clock"]
+[[row]]
+id = "rec.audio.system"
+group = "Recording"
+title = "System audio (loopback)"
+tier = 1
+status = "done"
+commands = ["record.start"]
+tests = ["e2e::records_a_system_audio_track_that_decodes_upright", "audio::tests::silent_source_is_padded_with_zeros"]
+[[row]]
+id = "rec.pause"
+group = "Recording"
+title = "Pause/resume, countdown, recording toolbar, hotkeys"
+tier = 1
+status = "partial"
+commands = ["record.pause", "record.resume", "record.stop", "record.status"]
+[[row]]
+id = "rec.codec.h264"
+group = "Recording"
+title = "H.264 MP4 output"
+tier = 1
+status = "done"
+commands = ["record.start"]
+tests = ["e2e::records_an_mp4_that_decodes_back_to_the_fixture"]
+[[row]]
+id = "rec.codec.h265"
+group = "Recording"
+title = "H.265 MP4 output"
+tier = 1
+status = "partial"
+commands = ["record.start"]
+[[row]]
+id = "rec.cursor.highlight"
+group = "Recording"
+title = "Cursor highlight"
+tier = 1
+status = "partial"
+commands = ["record.start"]
+[[row]]
+id = "rec.cursor.clicks"
+group = "Recording"
+title = "Animated click ripples"
+tier = 1
+status = "partial"
+commands = ["record.start"]
+[[row]]
+id = "rec.screendraw"
+group = "Recording"
+title = "Screen Draw overlay while recording (arrow, square, step, auto-fade)"
+tier = 1
+status = "missing"
+[[row]]
+id = "rec.webcam"
+group = "Recording"
+title = "Webcam capture"
+tier = 1
+status = "done"
+commands = ["record.start", "record.devices"]
+tests = ["commands::recording_devices_audio_and_camera_release", "commands::webcam_pip_and_swap_commands_track_layout"]
+[[row]]
+id = "rec.pip"
+group = "Recording"
+title = "Picture-in-picture (size, shape, position)"
+tier = 1
+status = "partial"
+commands = ["record.pip"]
+[[row]]
+id = "rec.swap"
+group = "Recording"
+title = "Swap between screen and webcam"
+tier = 1
+status = "partial"
+commands = ["record.swap"]
+[[row]]
+id = "rec.noise"
+group = "Recording"
+title = "Background noise removal"
+tier = 2
+status = "missing"
+[[row]]
+id = "rec.webcam.blur"
+group = "Recording"
+title = "Webcam background blur/virtual background"
+tier = 3
+status = "missing"
+
+# ---- Editor tools ----
+[[row]]
+id = "ed.arrow"
+group = "Editor tools"
+title = "Arrow and Line tool"
+tier = 1
+status = "partial"
+commands = ["editor.arrow.add", "editor.line.add"]
+[[row]]
+id = "ed.text"
+group = "Editor tools"
+title = "Text tool"
+tier = 1
+status = "partial"
+commands = ["editor.text.add"]
+[[row]]
+id = "ed.callout"
+group = "Editor tools"
+title = "Callout tool (shapes, tails)"
+tier = 1
+status = "partial"
+commands = ["editor.callout.add"]
+[[row]]
+id = "ed.shape"
+group = "Editor tools"
+title = "Shape tool (rectangle, ellipse, polygon, custom)"
+tier = 1
+status = "partial"
+commands = ["editor.rect.add", "editor.ellipse.add"]
+[[row]]
+id = "ed.stamp"
+group = "Editor tools"
+title = "Stamp tool (library, custom, emoji)"
+tier = 1
+status = "partial"
+commands = ["editor.stamp.add"]
+[[row]]
+id = "ed.fill"
+group = "Editor tools"
+title = "Fill tool (incl. global fill)"
+tier = 1
+status = "partial"
+commands = ["editor.fill"]
+[[row]]
+id = "ed.move"
+group = "Editor tools"
+title = "Move tool (select, move, resize, delete objects)"
+tier = 1
+status = "partial"
+commands = ["editor.object.move", "editor.object.delete", "editor.object.hit_test"]
+[[row]]
+id = "ed.selection"
+group = "Editor tools"
+title = "Selection tool (rect, ellipse, freehand, auto-fill delete)"
+tier = 1
+status = "partial"
+commands = ["editor.selection.delete"]
+[[row]]
+id = "ed.blur"
+group = "Editor tools"
+title = "Blur tool (pixelate, smooth)"
+tier = 1
+status = "partial"
+commands = ["editor.blur.add"]
+[[row]]
+id = "ed.step"
+group = "Editor tools"
+title = "Step tool (numbered markers, auto-increment)"
+tier = 1
+status = "partial"
+commands = ["editor.step.add"]
+[[row]]
+id = "ed.magnify"
+group = "Editor tools"
+title = "Magnify tool"
+tier = 1
+status = "partial"
+commands = ["editor.magnify.add"]
+[[row]]
+id = "ed.cutout"
+group = "Editor tools"
+title = "Cut Out tool (edge styles)"
+tier = 1
+status = "partial"
+commands = ["editor.cutout"]
+[[row]]
+id = "ed.crop"
+group = "Editor tools"
+title = "Crop tool"
+tier = 1
+status = "partial"
+commands = ["editor.crop"]
+tests = ["commands::crop_moves_annotations_and_resizes_base"]
+[[row]]
+id = "ed.highlighter"
+group = "Editor tools"
+title = "Highlighter tool"
+tier = 1
+status = "partial"
+commands = ["editor.highlight.add"]
+[[row]]
+id = "ed.pen"
+group = "Editor tools"
+title = "Pen tool"
+tier = 1
+status = "partial"
+commands = ["editor.pen.add"]
+[[row]]
+id = "ed.eraser"
+group = "Editor tools"
+title = "Eraser tool"
+tier = 1
+status = "partial"
+commands = ["editor.eraser"]
+[[row]]
+id = "ed.magicwand"
+group = "Editor tools"
+title = "Magic Wand tool"
+tier = 1
+status = "partial"
+commands = ["editor.magicwand"]
+[[row]]
+id = "ed.favorites"
+group = "Editor tools"
+title = "Favorites and Quick Styles"
+tier = 1
+status = "partial"
+commands = ["editor.quickstyle.list", "editor.quickstyle.apply"]
+tests = ["commands::quick_styles_and_themes_are_single_undoable_steps"]
+[[row]]
+id = "ed.themes"
+group = "Editor tools"
+title = "Themes (brand colours)"
+tier = 1
+status = "partial"
+commands = ["editor.theme.list", "editor.theme.apply"]
+tests = ["commands::quick_styles_and_themes_are_single_undoable_steps"]
+[[row]]
+id = "ed.undo"
+group = "Editor tools"
+title = "Undo/redo history"
+tier = 1
+status = "done"
+commands = ["edit.undo", "edit.redo"]
+tests = ["commands::capture_region_then_annotate_undo_export"]
+[[row]]
+id = "ed.ocr.edit"
+group = "Editor tools"
+title = "Text recognition: edit/copy/delete text in image"
+tier = 3
+status = "partial"
+commands = ["editor.ocr.replace", "capture.grab_text"]
+tests = ["commands::ocr_replace_and_background_removal"]
+[[row]]
+id = "ed.smartredact"
+group = "Editor tools"
+title = "Smart Redact"
+tier = 3
+status = "partial"
+commands = ["editor.smart_redact"]
+tests = ["commands::smart_redact_blurs_only_sensitive_spans"]
+[[row]]
+id = "ed.simplify"
+group = "Editor tools"
+title = "Simplify (ML)"
+tier = 3
+status = "missing"
+[[row]]
+id = "ed.smartmove"
+group = "Editor tools"
+title = "Smart Move (ML)"
+tier = 3
+status = "missing"
+[[row]]
+id = "ed.bgremove"
+group = "Editor tools"
+title = "Background remover (ML)"
+tier = 3
+status = "partial"
+commands = ["image.remove_background"]
+tests = ["commands::ocr_replace_and_background_removal"]
+
+# ---- Image effects and operations ----
+[[row]]
+id = "fx.border"
+group = "Effects"
+title = "Border"
+tier = 2
+status = "partial"
+commands = ["image.border"]
+[[row]]
+id = "fx.edges"
+group = "Effects"
+title = "Edges (torn, wave, saw, bevel)"
+tier = 2
+status = "done"
+commands = ["image.edges"]
+tests = ["commands::effects_canvas_trim_are_undoable_steps"]
+[[row]]
+id = "fx.shadow"
+group = "Effects"
+title = "Shadow"
+tier = 2
+status = "partial"
+commands = ["image.shadow"]
+[[row]]
+id = "fx.perspective"
+group = "Effects"
+title = "Perspective"
+tier = 2
+status = "partial"
+commands = ["image.perspective"]
+[[row]]
+id = "fx.pagecurl"
+group = "Effects"
+title = "Page curl"
+tier = 2
+status = "partial"
+commands = ["image.pagecurl"]
+[[row]]
+id = "fx.reflection"
+group = "Effects"
+title = "Reflection"
+tier = 2
+status = "done"
+commands = ["image.reflection"]
+tests = ["commands::effects_canvas_trim_are_undoable_steps"]
+[[row]]
+id = "fx.filters"
+group = "Effects"
+title = "Filters (soften, sharpen, opacity, monochrome, grayscale, invert, sepia)"
+tier = 2
+status = "partial"
+commands = ["image.grayscale", "image.invert", "image.sepia", "image.sharpen", "image.blur", "image.opacity"]
+[[row]]
+id = "fx.coloradjust"
+group = "Effects"
+title = "Color adjustment and replacement"
+tier = 2
+status = "partial"
+commands = ["image.adjust", "image.replace_color"]
+[[row]]
+id = "fx.spotlight"
+group = "Effects"
+title = "Spotlight and magnify"
+tier = 2
+status = "partial"
+commands = ["image.spotlight"]
+[[row]]
+id = "fx.watermark"
+group = "Effects"
+title = "Watermark"
+tier = 2
+status = "done"
+commands = ["image.watermark"]
+tests = ["commands::combine_batch_convert_and_pdf_export"]
+[[row]]
+id = "fx.fade"
+group = "Effects"
+title = "Fade"
+tier = 2
+status = "done"
+commands = ["image.fade"]
+tests = ["commands::effects_canvas_trim_are_undoable_steps"]
+[[row]]
+id = "fx.captureinfo"
+group = "Effects"
+title = "Capture info stamp"
+tier = 2
+status = "missing"
+[[row]]
+id = "img.resize"
+group = "Image"
+title = "Resize / canvas size / rotate / flip / trim"
+tier = 2
+status = "done"
+commands = ["image.resize", "image.canvas", "image.trim", "image.rotate"]
+tests = ["commands::effects_canvas_trim_are_undoable_steps"]
+[[row]]
+id = "img.combine"
+group = "Image"
+title = "Combine images"
+tier = 2
+status = "done"
+commands = ["image.combine"]
+tests = ["commands::combine_batch_convert_and_pdf_export"]
+[[row]]
+id = "img.templates"
+group = "Image"
+title = "Templates (step guide, timeline, reference)"
+tier = 2
+status = "missing"
+[[row]]
+id = "img.batch"
+group = "Image"
+title = "Batch convert"
+tier = 2
+status = "done"
+commands = ["batch.convert"]
+tests = ["commands::combine_batch_convert_and_pdf_export"]
+
+# ---- Video editing ----
+[[row]]
+id = "vid.play"
+group = "Video editing"
+title = "Playback"
+tier = 2
+status = "partial"
+commands = ["video.frame", "video.probe"]
+[[row]]
+id = "vid.trim"
+group = "Video editing"
+title = "Trim"
+tier = 2
+status = "done"
+commands = ["video.trim"]
+tests = ["e2e::video_edit_pipeline_trim_cut_combine_gif_images"]
+[[row]]
+id = "vid.cut"
+group = "Video editing"
+title = "Cut out sections"
+tier = 2
+status = "done"
+commands = ["video.cut"]
+tests = ["e2e::video_edit_pipeline_trim_cut_combine_gif_images"]
+[[row]]
+id = "vid.combine"
+group = "Video editing"
+title = "Combine clips"
+tier = 2
+status = "done"
+commands = ["video.combine"]
+tests = ["e2e::video_edit_pipeline_trim_cut_combine_gif_images"]
+[[row]]
+id = "vid.frame"
+group = "Video editing"
+title = "Save frame as image"
+tier = 2
+status = "done"
+commands = ["video.frame"]
+tests = ["e2e::records_an_mp4_that_decodes_back_to_the_fixture"]
+[[row]]
+id = "vid.gif"
+group = "Video editing"
+title = "Create GIF"
+tier = 2
+status = "done"
+commands = ["video.gif"]
+tests = ["e2e::video_edit_pipeline_trim_cut_combine_gif_images"]
+[[row]]
+id = "vid.fromimages"
+group = "Video editing"
+title = "Video from images with narration"
+tier = 2
+status = "partial"
+commands = ["video.from_images"]
+[[row]]
+id = "vid.silent"
+group = "Video editing"
+title = "Silent copy"
+tier = 2
+status = "missing"
+
+# ---- Library ----
+[[row]]
+id = "lib.tray"
+group = "Library"
+title = "Recent captures tray"
+tier = 2
+status = "partial"
+commands = ["library.recent"]
+[[row]]
+id = "lib.library"
+group = "Library"
+title = "Library with auto metadata"
+tier = 2
+status = "done"
+commands = ["library.list", "library.open"]
+tests = ["commands::library_share_copies_file_and_clipboard"]
+[[row]]
+id = "lib.search"
+group = "Library"
+title = "Search"
+tier = 2
+status = "done"
+commands = ["library.list"]
+tests = ["commands::library_share_copies_file_and_clipboard"]
+[[row]]
+id = "lib.filter"
+group = "Library"
+title = "Filter and sort"
+tier = 2
+status = "done"
+commands = ["library.list"]
+tests = ["commands::library_share_copies_file_and_clipboard"]
+[[row]]
+id = "lib.tags"
+group = "Library"
+title = "Tags"
+tier = 2
+status = "done"
+commands = ["library.tag", "library.tags"]
+tests = ["commands::library_share_copies_file_and_clipboard"]
+[[row]]
+id = "lib.location"
+group = "Library"
+title = "Library location setting"
+tier = 2
+status = "done"
+commands = ["library.open_dir", "prefs.set"]
+tests = ["commands::library_share_copies_file_and_clipboard"]
+
+# ---- Export ----
+[[row]]
+id = "exp.native"
+group = "Export"
+title = "Native project format (.scit)"
+tier = 0
+status = "done"
+commands = ["doc.save", "doc.open"]
+tests = ["commands::capture_region_then_annotate_undo_export"]
+[[row]]
+id = "exp.png"
+group = "Export"
+title = "PNG"
+tier = 0
+status = "done"
+commands = ["doc.export"]
+tests = ["commands::capture_region_then_annotate_undo_export"]
+[[row]]
+id = "exp.jpg"
+group = "Export"
+title = "JPG"
+tier = 0
+status = "partial"
+commands = ["doc.export"]
+[[row]]
+id = "exp.other"
+group = "Export"
+title = "GIF, BMP, TIFF, WebP"
+tier = 2
+status = "partial"
+commands = ["doc.export"]
+[[row]]
+id = "exp.pdf"
+group = "Export"
+title = "PDF"
+tier = 2
+status = "done"
+commands = ["doc.export"]
+tests = ["commands::combine_batch_convert_and_pdf_export"]
+[[row]]
+id = "exp.mp4"
+group = "Export"
+title = "MP4"
+tier = 1
+status = "done"
+commands = ["record.stop", "video.export"]
+tests = ["e2e::records_an_mp4_that_decodes_back_to_the_fixture", "commands::video_export_copies_mp4_and_rejects_bad_paths"]
+[[row]]
+id = "exp.print"
+group = "Export"
+title = "Print"
+tier = 2
+status = "missing"
+[[row]]
+id = "exp.share"
+group = "Export"
+title = "Share to file / clipboard / app"
+tier = 2
+status = "partial"
+commands = ["edit.copy", "doc.export", "library.share"]
+tests = ["commands::library_share_copies_file_and_clipboard"]
+[[row]]
+id = "auto.control"
+group = "Automation"
+title = "Control channel + CLI + MCP"
+tier = 1
+status = "done"
+commands = ["command.list", "prefs.get"]
+tests = ["commands::control_protocol_round_trip", "automation::rejects_missing_token_and_forwards_valid_requests"]
+
+[[row]]
+id = "auto.mcp"
+group = "Automation"
+title = "MCP server (every command is a tool)"
+tier = 2
+status = "done"
+commands = ["command.list"]
+tests = ["commands::mcp_lists_every_command_and_calls_tools"]

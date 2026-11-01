@@ -1,0 +1,16 @@
+[package]
+name = "screenit-ops"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-doc = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+screenit-geom = { workspace = true }
+screenit-raster = { workspace = true }
+
+[lints]
+workspace = true

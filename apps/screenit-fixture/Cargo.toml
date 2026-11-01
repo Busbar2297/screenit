@@ -1,0 +1,25 @@
+[package]
+name = "screenit-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-testkit = { workspace = true }
+windows-sys = { workspace = true }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[features]
+e2e = []
+
+[dev-dependencies]
+screenit-platform = { workspace = true }
+screenit-engine = { workspace = true }
+screenit-capture = { workspace = true }
+screenit-geom = { workspace = true }
+screenit-raster = { workspace = true }
+serde_json = { workspace = true }
+screenit-vector = { workspace = true }
+screenit-doc = { workspace = true }

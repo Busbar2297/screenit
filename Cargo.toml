@@ -1,0 +1,74 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+default-members = ["crates/*", "apps/screenit-cli", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.90"
+repository = "https://github.com/Busbar2297/screenit"
+homepage = "https://github.com/Busbar2297/screenit"
+
+[workspace.dependencies]
+windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Globalization", "Foundation_Collections", "Win32_System_Com", "Win32_System_WinRT", "Win32_Media_MediaFoundation", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_Media_Audio", "Win32_Devices_FunctionDiscovery", "Win32_System_Threading", "Win32_Security"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
+tray-icon = { version = "0.26", default-features = false }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Threading", "Win32_Storage_Xps", "Win32_Security"] }
+# internal
+screenit-geom = { path = "crates/geom" }
+screenit-raster = { path = "crates/raster" }
+screenit-codecs = { path = "crates/codecs" }
+screenit-doc = { path = "crates/doc" }
+screenit-ops = { path = "crates/ops" }
+screenit-algo = { path = "crates/algo" }
+screenit-vector = { path = "crates/vector" }
+screenit-compose = { path = "crates/compose" }
+screenit-format = { path = "crates/format" }
+screenit-capture = { path = "crates/capture" }
+screenit-record = { path = "crates/record" }
+screenit-library = { path = "crates/library" }
+screenit-platform = { path = "crates/platform" }
+screenit-engine = { path = "crates/engine" }
+screenit-ui-egui = { path = "crates/ui-egui" }
+screenit-automation = { path = "crates/automation" }
+screenit-testkit = { path = "crates/testkit" }
+
+# external
+thiserror = "2"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
+rayon = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ab_glyph = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
+wildcard_imports = "deny"
+dbg_macro = "warn"
+todo = "warn"
+collapsible_if = "allow"
+unit_arg = "allow"
+manual_is_multiple_of = "allow"
+manual_checked_ops = "allow"
+chunks_exact_to_as_chunks = "allow"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

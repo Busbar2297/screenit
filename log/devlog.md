@@ -1,0 +1,58 @@
+# Dev log
+
+## M0 start
+- Workspace of 17 crates + 3 apps + xtask compiles. AGENTS.md and docs written.
+
+## Engine + harness
+- Engine command modules (doc, editor, image, library, record, system, capture) + control protocol complete and tested against FakeScreen.
+- testkit: golden diff (check_golden / assert_image_eq!), FakeScreen/Clipboard/Recorder, fake_session.
+- CLI: commands --ids, exec, serve. panic_hunt + perf tests. xtask ci green.
+
+## M4 recording
+Media Foundation H.264 MP4 recorder (GDI-polled, pause-aware timestamps, window follow, cursor highlight/ripples) and IMFSourceReader frame reader; e2e records the fixture and decodes a frame.
+
+## M5 webcam
+CameraSource trait, composite_webcam (PiP shapes/corners/size, swap), record.pip/record.swap commands, MfRecorder compositing, FakeCamera.
+
+## M6 effects
+algo::fx (edges, reflection, spotlight, fade, watermark, perspective, page curl, canvas, trim, combine), codecs::encode_pdf, commands image.* + batch.convert + PDF export. Gaps: capture-info stamp, templates, print, bevel edges, true perspective quad, curl flap.
+
+## M7 video editing
+VideoWriter trait + MfVideoWriter; EditList-driven render (trim/cut/combine) via cached IMFSourceReader; animated GIF; video from images; e2e verifies durations. Gaps: narration, re-encodes (no lossless trim).
+
+## M8 library/MCP/packaging
+MCP stdio server (engine::mcp, cli mcp), library.share, egui library panel + video transport bar, xtask package (portable zip). Gaps: MSI installer, share-to-app.
+
+## M9 ML-adjacent
+Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, span-level boxes), OCR text replace, classical background removal (corner flood), time-lapse to MP4. Gaps: Simplify, Smart Move, printer capture; redact is OCR-accuracy bound; background removal is colour-based, not ML.
+
+## UX pass
+- Compact capture bar + editor + library (grouped by day/time, thumbnails) in one window; no console window; close/minimize parks in tray (off-screen tool window); tray All-in-One works while parked.
+- Overlay: Esc / right-click cancels; HiDPI 1:1 rendering; drag previews match final shapes.
+- Print Screen: registry PrintScreenKeyForSnippingEnabled=0 on start.
+
+## UI revamp + Print Screen while another tool owns it
+- theme.rs (dark palette, violet-to-cyan accent), icons.rs (painter-drawn vector icons, no assets), chrome.rs (launcher tiles, editor top bar, tool palette with single-key shortcuts, properties panel, status bar). Canvas centred with fit-to-window; Ctrl+wheel zoom. Overlay: hint pill, size badge, corner handles, 8x magnifier.
+- Print Screen: platform/keyhook.rs. RegisterHotKey fails while another capture tool holds the key and WH_KEYBOARD_LL proved unreliable next to other hooks, so Raw Input (RIDEV_INPUTSINK, message-only window) is used; PrtSc often arrives as key-up only, so either edge fires, debounced 600 ms. Probe: `cargo run -p screenit-platform --example prtsc_probe`.
+- Still open: when another capture tool also listens, both fire; Raw Input cannot swallow the key.
+
+## Recording with voice and camera
+- platform/audio.rs: WASAPI capture (microphone; system audio via render loopback), AUTOCONVERTPCM to 48 kHz stereo s16. record/audio.rs: AudioMixer sums sources onto the video clock. MfRecorder adds an AAC stream; video.probe reports audio tracks.
+- platform/camera.rs: MfCamera (MF source reader on the first video capture device, RGB32), opened lazily, released by CameraSource::stop. New command record.devices.
+- FIX: recorded MP4s were upside down in other players; writer and reader now both use the MF convention (positive stride = top-down).
+- UI (ui-egui/recording.rs): Record tile, option chips (Microphone, System audio, Webcam, Cursor effects), record-mode overlay, 3-2-1 countdown, floating toolbar excluded from capture via WDA_EXCLUDEFROMCAPTURE (set SCREENIT_TOOLBAR_IN_CAPTURE=1 to screenshot it).
+- Still open: record hotkeys, mic/camera picker, audio meters, audio playback in the player, region border while recording.
+
+## Save location, Save As, Export MP4, sheared video frames
+- Output folder is `<Pictures known folder>\screenIt` (SHGetKnownFolderPath), so it follows OneDrive redirection.
+- platform/shell.rs: pictures_dir, output_dir, save_dialog (IFileSaveDialog), reveal (explorer /select).
+- New command video.export. Export PNG, Save (.scit) and Export MP4 open a native Save As dialog; the status bar shows the full saved path plus "Show in folder".
+- FIX: frames decoded from recordings whose width is not a multiple of 16 were sheared. The reader re-reads the output type after decoding, takes the pitch from IMF2DBuffer2::Lock2DSize and crops to MF_MT_MINIMUM_DISPLAY_APERTURE. e2e: odd_width_recording_decodes_without_shear.
+
+## Naming and file format
+- Product name **screenIt**; crates/binaries screenit-* / screenit; env vars SCREENIT_TOOLBAR_IN_CAPTURE, SCREENIT_BLESS, SCREENIT_HUNT_ROUNDS.
+- Native format .scit (screenit_format::EXT); early .sxs project files still open (is_project).
+
+## Dark title bar on launch, single instance
+- platform::window::dark_title_bar sets DWMWA_USE_IMMERSIVE_DARK_MODE and forces SWP_FRAMECHANGED on the first frame (otherwise the caption stays light until the next activation change).
+- platform/instance.rs: named mutex + auto-reset event. A second launch grants AllowSetForegroundWindow, signals the event and exits; the first instance shows and activates its window.
