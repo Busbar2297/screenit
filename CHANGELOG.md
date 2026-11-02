@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Settings view with saved preferences; after a capture, open the editor or save silently.
+- Start with Windows (minimized to the tray), per-user MSI installer (unsigned) and portable zip.
+- Text recognition in Arabic and English, optional LM Studio vision model.
+- 28 interface languages with right-to-left Arabic and editable translation files.
+- 2K/4K recording: output size presets, GPU desktop duplication, hardware encoder, pipelined capture.
+
 ## 0.1.0 (first public release)
 
 ### Capture
