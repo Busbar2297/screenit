@@ -63,3 +63,8 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## After-capture mode
 - general.after_capture editor|silent (Settings view). Silent skips the editor, still saves/copies/adds to the library, and returns the window to where it was; a preset with open_in_editor=false overrides. Settings::opens_editor is the single decision point.
+
+## Start with Windows + MSI
+- platform/autostart.rs: HKCU Run value `screenIt` = quoted current exe + --minimized (works for the portable EXE); Settings toggles it via Session.on_autostart (only on change). Registry is the truth at startup.
+- --minimized parks the window in the tray on the first frame (created off-screen, no flash).
+- `cargo xtask msi`: WiX v3.14 (downloaded to target/wix314), installer/screenit.wxs, per-user, Start Menu shortcut, STARTUP=1 default adds the Run value. Verified install/uninstall cleanup.

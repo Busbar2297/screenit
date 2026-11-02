@@ -32,6 +32,7 @@
   MCP server.
 
 ### Known gaps
-- Portable zip only (no MSI installer yet).
+- Start with Windows (minimized to the tray) from Settings, for the portable EXE and the installer.
+- Per-user MSI installer (`cargo xtask msi`, WiX v3, unsigned).
 - No audio playback in the built-in video player; no microphone/camera picker in the UI yet.
 - Recording is GDI-polled (about 25 fps at 720p).

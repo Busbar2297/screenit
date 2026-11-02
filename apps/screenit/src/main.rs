@@ -49,9 +49,17 @@ fn main() {
     }
     session.default_save_dir = Some(screenit_platform::shell::output_dir());
     session.use_settings_file(dir.join("settings.json"));
+    // The Run key is the truth for start-with-Windows (the installer can set it too).
+    let on = screenit_platform::autostart::is_enabled_as(screenit_platform::autostart::APP_VALUE);
+    if on != session.settings.general.start_with_windows {
+        session.settings.general.start_with_windows = on;
+    }
+    screenit_platform::autostart::refresh(on, session.settings.general.start_minimized);
+    session.on_autostart = Some(std::sync::Arc::new(screenit_platform::autostart::set));
+    let start_hidden = std::env::args().any(|a| a == screenit_platform::autostart::MINIMIZED_ARG);
     let presets = session.presets.clone();
 
-    let result = screenit_ui_egui::run(session, move |waker: Waker| {
+    let result = screenit_ui_egui::run(session, start_hidden, move |waker: Waker| {
         let (tx, rx) = mpsc::channel::<UiEvent>();
         let (t, w) = (tx.clone(), waker.clone());
         activation.on_activate(move || {

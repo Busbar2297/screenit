@@ -41,7 +41,7 @@ components already built into Windows.
 ## Download
 
 Grab `screenit-v0.1.0-windows-x64.zip` from the [Releases](https://github.com/Busbar2297/screenit/releases)
-page, unzip it anywhere and run `screenit.exe`. No installer and no admin rights needed.
+page. Either run the `.msi` (per-user install, no admin rights, starts minimized with Windows; pass `STARTUP=0` to skip that) or unzip the portable zip anywhere and run `screenit.exe`. Turn *Start with Windows* on or off in Settings; `screenit.exe --minimized` starts straight into the tray. The MSI is unsigned, so SmartScreen may warn.
 
 Requirements: Windows 10 (1903 or later) or Windows 11, 64-bit.
 
@@ -75,7 +75,8 @@ cargo build --release -p screenit -p screenit-cli
 Create the portable release folder and zip (`release/screenit-v<version>-windows-x64/`):
 
 ```powershell
-cargo xtask package
+cargo xtask package   # portable zip into release/
+cargo xtask msi       # also builds the MSI (downloads the free WiX Toolset v3 on first use)
 ```
 
 ## Command line and automation

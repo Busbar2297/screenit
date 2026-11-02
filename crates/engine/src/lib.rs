@@ -159,6 +159,8 @@ pub struct Session {
     pub prefs: Prefs,
     pub settings: settings::Settings,
     pub settings_path: Option<PathBuf>,
+    /// Applies start-with-Windows `(enabled, minimized)`; returns false on failure.
+    pub on_autostart: Option<Arc<dyn Fn(bool, bool) -> bool + Send + Sync>>,
     /// Where captures go when the `save_dir` setting is empty.
     pub default_save_dir: Option<PathBuf>,
     pub last_region: Option<Rect>,
@@ -214,6 +216,7 @@ impl Session {
             prefs: Prefs::default(),
             settings: settings::Settings::default(),
             settings_path: None,
+            on_autostart: None,
             default_save_dir: None,
             last_region: None,
             scroll_frames: None,

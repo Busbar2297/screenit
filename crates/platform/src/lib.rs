@@ -4,6 +4,7 @@
 #![cfg(windows)]
 
 pub mod audio;
+pub mod autostart;
 pub mod camera;
 mod clipboard;
 pub mod hotkeys;

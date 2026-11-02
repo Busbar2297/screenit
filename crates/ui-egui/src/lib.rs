@@ -159,6 +159,8 @@ pub struct UiApp {
     /// The dark title bar has been applied to the native window.
     framed: bool,
     quit: bool,
+    /// Park in the tray on the first frame.
+    start_hidden: bool,
     pub(crate) settings_tab: settings_panel::Tab,
 }
 
@@ -194,6 +196,7 @@ impl UiApp {
             last_saved: None,
             framed: false,
             quit: false,
+            start_hidden: false,
             settings_tab: settings_panel::Tab::General,
         }
     }
@@ -498,6 +501,10 @@ impl eframe::App for UiApp {
             screenit_platform::window::dark_title_bar();
             self.framed = true;
         }
+        if self.start_hidden {
+            self.start_hidden = false;
+            self.send_to_tray();
+        }
         let (minimized, close) = ctx.input(|i| {
             let v = i.viewport();
             (v.minimized == Some(true), v.close_requested())
@@ -598,15 +605,21 @@ impl eframe::App for UiApp {
 }
 /// Start the UI. `setup` runs once the window exists and returns the event receiver, so hotkey,
 /// tray and control-channel threads can be given a `Waker`.
+/// start_hidden starts parked in the tray (used for start-with-Windows).
 pub fn run(
     session: Session,
+    start_hidden: bool,
     setup: impl FnOnce(Waker) -> Receiver<UiEvent> + 'static,
 ) -> eframe::Result {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("screenIt")
+        .with_inner_size(COMPACT_SIZE)
+        .with_min_inner_size([560.0, 180.0]);
+    if start_hidden {
+        viewport = viewport.with_position([-32000.0, -32000.0]);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("screenIt")
-            .with_inner_size(COMPACT_SIZE)
-            .with_min_inner_size([560.0, 180.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -615,7 +628,9 @@ pub fn run(
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
             let rx = setup(Waker(cc.egui_ctx.clone()));
-            Ok(Box::new(UiApp::new(session, rx)))
+            let mut app = UiApp::new(session, rx);
+            app.start_hidden = start_hidden;
+            Ok(Box::new(app))
         }),
     )
 }

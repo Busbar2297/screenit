@@ -270,12 +270,34 @@ impl Session {
         self.apply_settings();
     }
 
+    /// Swap in validated settings, run the start-with-Windows hook when it changed, and save.
+    fn install_settings(&mut self, next: Settings) -> Result<(), CommandError> {
+        let old = (
+            self.settings.general.start_with_windows,
+            self.settings.general.start_minimized,
+        );
+        let new = (
+            next.general.start_with_windows,
+            next.general.start_minimized,
+        );
+        self.settings = next;
+        self.apply_settings();
+        self.persist_settings()?;
+        if old != new
+            && let Some(hook) = self.on_autostart.clone()
+            && !hook(new.0, new.1)
+        {
+            return Err(CommandError::Failed(
+                "could not update the Windows startup entry".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Replace all settings at once (the Settings form); invalid input is rejected.
     pub fn replace_settings(&mut self, next: Settings) -> Result<(), CommandError> {
         next.validate()?;
-        self.settings = next;
-        self.apply_settings();
-        self.persist_settings()
+        self.install_settings(next)
     }
 
     /// Set one value by dotted path, e.g. `general.after_capture`.
@@ -302,9 +324,7 @@ impl Session {
         let next: Settings = serde_json::from_value(root)
             .map_err(|e| CommandError::Params(format!("bad value for `{path}`: {e}")))?;
         next.validate()?;
-        self.settings = next;
-        self.apply_settings();
-        self.persist_settings()
+        self.install_settings(next)
     }
 }
 
@@ -381,6 +401,29 @@ mod tests {
         s.general.after_capture = "silent".into();
         assert!(!s.opens_editor(None));
         assert!(!s.opens_editor(Some(true)));
+    }
+
+    #[test]
+    fn autostart_hook_runs_only_on_change() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = std::sync::Arc::new(AtomicU32::new(0));
+        let c = calls.clone();
+        let mut s = Session::new(crate::Services::default());
+        s.on_autostart = Some(std::sync::Arc::new(move |_, _| {
+            c.fetch_add(1, Ordering::SeqCst);
+            true
+        }));
+        s.set_setting("general.copy_to_clipboard", json!(true))
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        s.set_setting("general.start_with_windows", json!(true))
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        s.on_autostart = Some(std::sync::Arc::new(|_, _| false));
+        assert!(
+            s.set_setting("general.start_minimized", json!(false))
+                .is_err()
+        );
     }
 
     #[test]

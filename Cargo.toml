@@ -15,7 +15,7 @@ homepage = "https://github.com/Busbar2297/screenit"
 windows = { version = "0.62", features = ["Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Globalization", "Foundation_Collections", "Win32_System_Com", "Win32_System_WinRT", "Win32_Media_MediaFoundation", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_Media_Audio", "Win32_Devices_FunctionDiscovery", "Win32_System_Threading", "Win32_Security"] }
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
 tray-icon = { version = "0.26", default-features = false }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Threading", "Win32_Storage_Xps", "Win32_Security"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Threading", "Win32_Storage_Xps", "Win32_Security", "Win32_System_Registry"] }
 # internal
 screenit-geom = { path = "crates/geom" }
 screenit-raster = { path = "crates/raster" }

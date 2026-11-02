@@ -27,7 +27,8 @@ fn main() -> ExitCode {
             ],
             &[],
         ),
-        "package" => package(),
+        "package" => package().map(|_| ()),
+        "msi" => msi(),
         "perf" => run_cargo(
             &[
                 "test",
@@ -43,7 +44,7 @@ fn main() -> ExitCode {
         ),
         _ => {
             eprintln!(
-                "usage: cargo xtask <layers|parity|scorecard|ci [--e2e]|bless|panic-hunt|perf|package>"
+                "usage: cargo xtask <layers|parity|scorecard|ci [--e2e]|bless|panic-hunt|perf|package|msi>"
             );
             Ok(())
         }
@@ -119,7 +120,7 @@ fn ci(rest: &[String]) -> Result<(), String> {
 
 /// Portable release: binaries + docs staged under `release/screenit-v<version>-windows-x64/` and
 /// zipped next to it, ready to attach to a GitHub release. (An MSI installer is a documented gap.)
-fn package() -> Result<(), String> {
+fn package() -> Result<std::path::PathBuf, String> {
     // Binaries embed source paths (panic locations); strip the builder's home and checkout paths.
     // rustc applies the last matching prefix, so the broad home-directory rule comes first.
     let home = std::env::var("USERPROFILE").unwrap_or_default();
@@ -184,5 +185,111 @@ fn package() -> Result<(), String> {
         return Err("Compress-Archive failed".into());
     }
     println!("packaged {}", zip.display());
+    Ok(stage)
+}
+
+/// Component/feature XML for the files in `dir` (one level of sub-folders, e.g. `locales`).
+fn wix_files(dir: &std::path::Path) -> Result<(String, String), String> {
+    let id = |s: &str| {
+        let clean: String = s
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        format!("C_{clean}")
+    };
+    let mut files = String::new();
+    let mut refs = String::new();
+    let mut walk = |folder: &std::path::Path, rel: &str, out: &mut String| -> Result<(), String> {
+        let mut names: Vec<_> = std::fs::read_dir(folder)
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        for n in names {
+            let key = format!("{rel}{n}");
+            let cid = id(&key);
+            let src = folder.join(&n);
+            out.push_str(&format!(
+                "<Component Id=\"{cid}\" Guid=\"*\"><File Id=\"F{cid}\" Source=\"{}\" KeyPath=\"yes\" /></Component>\n",
+                src.display()
+            ));
+            refs.push_str(&format!("<ComponentRef Id=\"{cid}\" />\n"));
+        }
+        Ok(())
+    };
+    walk(dir, "", &mut files)?;
+    let locales = dir.join("locales");
+    if locales.is_dir() {
+        let mut inner = String::new();
+        walk(&locales, "locales/", &mut inner)?;
+        files.push_str(&format!(
+            "<Directory Id=\"LocalesDir\" Name=\"locales\">\n{inner}</Directory>\n"
+        ));
+    }
+    Ok((files, refs))
+}
+
+/// Per-user MSI (WiX Toolset v3, downloaded on first use into `target/wix314`).
+fn msi() -> Result<(), String> {
+    let stage = package()?;
+    let version = env!("CARGO_PKG_VERSION");
+    let wix = std::path::PathBuf::from("target/wix314");
+    if !wix.join("candle.exe").exists() {
+        let ps = format!(
+            "$ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force '{0}' | Out-Null; \
+             Invoke-WebRequest -UseBasicParsing https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip -OutFile 'target/wix314.zip'; \
+             Expand-Archive 'target/wix314.zip' '{0}' -Force",
+            wix.display()
+        );
+        let ok = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps])
+            .status()
+            .map_err(|e| e.to_string())?
+            .success();
+        if !ok {
+            return Err("could not download the WiX toolset".into());
+        }
+    }
+    let template = std::fs::read_to_string("installer/screenit.wxs").map_err(|e| e.to_string())?;
+    let (files, refs) = wix_files(&stage)?;
+    let wxs = template
+        .replace("<!--FILES-->", &files)
+        .replace("<!--REFS-->", &refs);
+    let obj_dir = std::path::Path::new("target/wix");
+    std::fs::create_dir_all(obj_dir).map_err(|e| e.to_string())?;
+    let wxs_path = obj_dir.join("screenit.wxs");
+    std::fs::write(&wxs_path, wxs).map_err(|e| e.to_string())?;
+    let obj = obj_dir.join("screenit.wixobj");
+    let out = std::path::Path::new("release").join(format!("screenit-v{version}-windows-x64.msi"));
+    let _ = std::fs::remove_file(&out);
+    let ok = Command::new(wix.join("candle.exe"))
+        .args([
+            "-nologo",
+            "-arch",
+            "x64",
+            &format!("-dVersion={version}"),
+            "-out",
+        ])
+        .arg(&obj)
+        .arg(&wxs_path)
+        .status()
+        .map_err(|e| format!("candle: {e}"))?
+        .success();
+    if !ok {
+        return Err("candle failed".into());
+    }
+    let ok = Command::new(wix.join("light.exe"))
+        .args(["-nologo", "-sval", "-out"])
+        .arg(&out)
+        .arg(&obj)
+        .status()
+        .map_err(|e| format!("light: {e}"))?
+        .success();
+    if !ok || !out.exists() {
+        return Err("light failed".into());
+    }
+    println!("built {}", out.display());
     Ok(())
 }

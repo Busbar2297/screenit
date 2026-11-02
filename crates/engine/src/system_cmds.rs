@@ -55,12 +55,10 @@ fn settings_set(s: &mut Session, p: &Value) -> CmdResult {
 fn settings_reset(s: &mut Session, p: &Value) -> CmdResult {
     Args::new(p, &[])?;
     let presets = s.settings.presets.clone();
-    s.settings = crate::settings::Settings {
+    s.replace_settings(crate::settings::Settings {
         presets,
         ..Default::default()
-    };
-    s.apply_settings();
-    s.persist_settings()?;
+    })?;
     settings_get(s, &Value::Null)
 }
 
