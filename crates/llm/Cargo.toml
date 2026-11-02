@@ -1,0 +1,16 @@
+[package]
+name = "screenit-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+screenit-raster = { workspace = true }
+screenit-codecs = { workspace = true }
+screenit-algo = { workspace = true }
+screenit-capture = { workspace = true }
+serde_json = { workspace = true }
+ureq = { workspace = true }
+
+[lints]
+workspace = true

@@ -161,6 +161,11 @@ pub struct UiApp {
     quit: bool,
     /// Park in the tray on the first frame.
     start_hidden: bool,
+    pub(crate) win_langs: Option<Vec<String>>,
+    pub(crate) llm_models: Vec<String>,
+    pub(crate) llm_msg: String,
+    pub(crate) llm_rx: Option<Receiver<Result<Vec<String>, String>>>,
+    pub(crate) ocr_rx: Option<Receiver<Result<screenit_engine::OcrOutput, String>>>,
     pub(crate) settings_tab: settings_panel::Tab,
 }
 
@@ -197,6 +202,11 @@ impl UiApp {
             framed: false,
             quit: false,
             start_hidden: false,
+            win_langs: None,
+            llm_models: Vec::new(),
+            llm_msg: String::new(),
+            llm_rx: None,
+            ocr_rx: None,
             settings_tab: settings_panel::Tab::General,
         }
     }
@@ -523,6 +533,7 @@ impl eframe::App for UiApp {
             self.send_to_tray();
         }
         self.drain_events(ctx);
+        self.poll_ocr_jobs();
         self.run_pending(ctx);
         if self.quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

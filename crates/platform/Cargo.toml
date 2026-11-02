@@ -11,6 +11,7 @@ screenit-geom = { workspace = true }
 screenit-raster = { workspace = true }
 thiserror = { workspace = true }
 screenit-engine = { workspace = true }
+screenit-llm = { workspace = true }
 windows-sys = { workspace = true }
 windows = { workspace = true }
 

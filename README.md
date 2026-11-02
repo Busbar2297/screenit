@@ -27,7 +27,7 @@ components already built into Windows.
 | **Capture** | Region, window, full screen, scrolling, menu, object, multi-area and freehand capture. Crosshair overlay with an 8x magnifier and size badge. Print Screen works even when another tool has claimed the key. |
 | **Annotate** | Arrows, shapes, text, callouts, numbered steps, highlighter, blur, pen, stamps, magnifier, crop and cut-out. Everything stays editable until you export. Unlimited undo/redo. |
 | **Effects** | Borders, shadows, torn edges, reflection, spotlight, watermark, perspective and page curl. |
-| **Smart tools** | Grab text with OCR, Smart Redact (emails, phone numbers, card numbers, IPs, URLs, your own terms), background removal. |
+| **Smart tools** | Grab text with OCR (offline Windows OCR in English and Arabic, or optionally a local vision model through LM Studio), Smart Redact (emails, phone numbers, card numbers, IPs, URLs, your own terms), background removal. |
 | **Record** | MP4 (H.264) of an area, a window or a whole monitor, with microphone, system audio, webcam picture-in-picture and cursor effects. A floating pause/stop toolbar that never shows up in the video. |
 | **Edit video** | Trim, cut, combine, export to GIF, make a video from images, export MP4. |
 | **Organise** | Library grouped by day with thumbnails, tags and search. Saves go to `Pictures\screenIt` (OneDrive-aware). |

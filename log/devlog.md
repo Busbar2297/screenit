@@ -68,3 +68,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - platform/autostart.rs: HKCU Run value `screenIt` = quoted current exe + --minimized (works for the portable EXE); Settings toggles it via Session.on_autostart (only on change). Registry is the truth at startup.
 - --minimized parks the window in the tray on the first frame (created off-screen, no flash).
 - `cargo xtask msi`: WiX v3.14 (downloaded to target/wix314), installer/screenit.wxs, per-user, Start Menu shortcut, STARTUP=1 default adds the Run value. Verified install/uninstall cleanup.
+
+## OCR: Arabic/English and LM Studio
+- capture: Ocr::recognize_lang/languages, LlmOcr trait, rtl_logical_order (Windows returns RTL words in visual order; reversed per RTL run).
+- platform/ocr.rs: language selection (auto/en/ar) via TryCreateFromLanguage, clear error when the pack is missing.
+- New crate screenit-llm (L5): OpenAI-compatible /v1/models + /v1/chat/completions, image downscaled to 2048px, 2MB response cap, timeouts; fake-server tests.
+- engine: OcrJob (settings ocr.engine windows|llm|windows_then_llm), command ocr.info; UI runs OCR on a worker thread (editor Copy text button) and has a Test connection button. Verified live against LM Studio (gemma-4-e4b) with an Arabic+English image.

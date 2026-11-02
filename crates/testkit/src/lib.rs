@@ -343,6 +343,27 @@ impl screenit_record::AvDevices for FakeDevices {
     }
 }
 
+/// Language-model OCR fake: replies with fixed text, or fails when None.
+pub struct FakeLlm(pub Option<String>);
+
+impl screenit_capture::LlmOcr for FakeLlm {
+    fn transcribe(
+        &self,
+        _: &Raster,
+        _: &screenit_capture::LlmConfig,
+    ) -> Result<String, CaptureError> {
+        self.0
+            .clone()
+            .ok_or_else(|| CaptureError::Platform("llm down".into()))
+    }
+    fn models(&self, _: &screenit_capture::LlmConfig) -> Result<Vec<String>, CaptureError> {
+        self.0
+            .as_ref()
+            .map(|_| vec!["fake-model".into()])
+            .ok_or_else(|| CaptureError::Platform("llm down".into()))
+    }
+}
+
 /// OCR fake that returns fixed lines regardless of the image.
 pub struct FakeOcr(pub Vec<String>);
 

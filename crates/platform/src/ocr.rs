@@ -13,15 +13,52 @@ fn plat<E: std::fmt::Display>(e: E) -> CaptureError {
     CaptureError::Platform(format!("ocr: {e}"))
 }
 
+/// The engine for a language hint: `auto` follows the profile languages, anything else must be
+/// an installed recogniser (e.g. `ar`, `en`).
+fn engine_for(lang: &str) -> Result<OcrEngine, CaptureError> {
+    if lang.is_empty() || lang == "auto" {
+        return OcrEngine::TryCreateFromUserProfileLanguages()
+            .map_err(|_| plat("no OCR language installed"));
+    }
+    let installed = OcrEngine::AvailableRecognizerLanguages().map_err(plat)?;
+    let want = lang.to_ascii_lowercase();
+    for l in installed {
+        let tag = l
+            .LanguageTag()
+            .map_err(plat)?
+            .to_string()
+            .to_ascii_lowercase();
+        if tag == want || tag.starts_with(&format!("{want}-")) {
+            return OcrEngine::TryCreateFromLanguage(&l).map_err(plat);
+        }
+    }
+    Err(plat(format!(
+        "no {lang} OCR language installed (Windows Settings > Time & language > Language & region > Add a language, with Optical character recognition)"
+    )))
+}
+
 impl Ocr for WinOcr {
     fn recognize(&self, image: &Raster) -> Result<Vec<OcrLine>, CaptureError> {
+        self.recognize_lang(image, "auto")
+    }
+
+    fn languages(&self) -> Vec<String> {
+        let Ok(list) = OcrEngine::AvailableRecognizerLanguages() else {
+            return Vec::new();
+        };
+        list.into_iter()
+            .filter_map(|l| l.LanguageTag().ok())
+            .map(|t| t.to_string())
+            .collect()
+    }
+
+    fn recognize_lang(&self, image: &Raster, lang: &str) -> Result<Vec<OcrLine>, CaptureError> {
         // The engine has a maximum image dimension; refuse rather than silently clip.
         let max = OcrEngine::MaxImageDimension().map_err(plat)?;
         if image.width() > max || image.height() > max {
             return Err(plat(format!("image larger than {max}px")));
         }
-        let engine = OcrEngine::TryCreateFromUserProfileLanguages()
-            .map_err(|_| plat("no OCR language installed"))?;
+        let engine = engine_for(lang)?;
         // Raster is RGBA; the bitmap wants BGRA.
         let mut bgra = Vec::with_capacity(image.data().len());
         for p in image.data().chunks_exact(4) {
@@ -42,9 +79,20 @@ impl Ocr for WinOcr {
             .map_err(plat)?
             .join()
             .map_err(plat)?;
+        let rtl = engine
+            .RecognizerLanguage()
+            .and_then(|l| l.LanguageTag())
+            .map(|t| {
+                let t = t.to_string().to_ascii_lowercase();
+                t.starts_with("ar") || t.starts_with("he") || t.starts_with("fa")
+            })
+            .unwrap_or(false);
         let mut out = Vec::new();
         for line in result.Lines().map_err(plat)? {
-            let text = line.Text().map_err(plat)?.to_string();
+            let mut text = line.Text().map_err(plat)?.to_string();
+            if rtl {
+                text = screenit_capture::rtl_logical_order(&text);
+            }
             let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, 0f64, 0f64);
             for w in line.Words().map_err(plat)? {
                 let r = w.BoundingRect().map_err(plat)?;

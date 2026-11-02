@@ -57,6 +57,7 @@ pub fn services() -> Services {
         screen: Some(screen),
         clipboard: Some(Arc::new(Win32Clipboard)),
         ocr: Some(Arc::new(WinOcr)),
+        llm: Some(Arc::new(screenit_llm::LmStudio)),
         camera: Some(Arc::new(camera::MfCamera::new(None))),
         devices: Some(Arc::new(Devices)),
         recorder: Some(Box::new(move || {

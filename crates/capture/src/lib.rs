@@ -91,6 +91,33 @@ pub struct OcrLine {
 /// Text recognition, implemented by the platform layer (Windows.Media.Ocr) and by test fakes.
 pub trait Ocr: Send + Sync {
     fn recognize(&self, image: &Raster) -> Result<Vec<OcrLine>, CaptureError>;
+
+    /// Recognise with a language hint (`auto`, `en`, `ar`, any BCP-47 tag). Engines without
+    /// language selection ignore it.
+    fn recognize_lang(&self, image: &Raster, lang: &str) -> Result<Vec<OcrLine>, CaptureError> {
+        let _ = lang;
+        self.recognize(image)
+    }
+
+    /// BCP-47 tags of the installed recognition languages (empty when unknown).
+    fn languages(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+/// Where a language-model OCR server lives (an OpenAI-compatible API such as LM Studio).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LlmConfig {
+    pub url: String,
+    pub model: String,
+    pub timeout_secs: u32,
+}
+
+/// OCR through a vision language model. Returns plain text only (no boxes).
+pub trait LlmOcr: Send + Sync {
+    fn transcribe(&self, image: &Raster, cfg: &LlmConfig) -> Result<String, CaptureError>;
+    /// Model ids the server offers (also a connection test).
+    fn models(&self, cfg: &LlmConfig) -> Result<Vec<String>, CaptureError>;
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -967,5 +994,45 @@ mod tests {
         );
         assert_eq!(g.get(3, 1), Some([10, 3, 0, 255]));
         assert!(f.grab(Rect::new(100, 100, 5, 5)).is_err());
+    }
+}
+
+fn is_rtl_char(c: char) -> bool {
+    matches!(c as u32, 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF)
+}
+
+/// Windows OCR reports the words of a right-to-left line in left-to-right (visual) order.
+/// Reverse each run of consecutive RTL words so the text reads in logical order; Latin words,
+/// numbers and punctuation keep their place.
+pub fn rtl_logical_order(line: &str) -> String {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    if !words.iter().any(|w| w.chars().any(is_rtl_char)) {
+        return line.to_string();
+    }
+    let mut out: Vec<&str> = Vec::with_capacity(words.len());
+    let mut run: Vec<&str> = Vec::new();
+    for w in words {
+        if w.chars().any(is_rtl_char) {
+            run.push(w);
+        } else {
+            out.extend(run.drain(..).rev());
+            out.push(w);
+        }
+    }
+    out.extend(run.drain(..).rev());
+    out.join(" ")
+}
+
+#[cfg(test)]
+mod rtl_tests {
+    use super::rtl_logical_order;
+
+    #[test]
+    fn reverses_arabic_runs_only() {
+        let visual = "\u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645} \u{645}\u{631}\u{62D}\u{628}\u{627} - screenIt";
+        let logical = "\u{645}\u{631}\u{62D}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645} - screenIt";
+        assert_eq!(rtl_logical_order(visual), logical);
+        assert_eq!(rtl_logical_order("Total: 1,250 USD"), "Total: 1,250 USD");
+        assert_eq!(rtl_logical_order(""), "");
     }
 }

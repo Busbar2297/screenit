@@ -17,6 +17,7 @@ pub const LAYERS: &[(&str, u8)] = &[
     ("capture", 4),
     ("record", 4),
     ("library", 4),
+    ("llm", 5),
     ("platform", 5),
     ("engine", 5),
     ("ui-egui", 6),
@@ -31,6 +32,7 @@ const SIDEWAYS_OK: &[(&str, &str)] = &[
     ("codecs", "raster"),
     ("format", "compose"),
     ("platform", "engine"),
+    ("platform", "llm"),
 ];
 
 fn layer_of(name: &str) -> Option<u8> {

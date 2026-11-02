@@ -227,6 +227,18 @@ impl UiApp {
             if theme::icon_button(ui, Icon::Redo, "Redo (Ctrl+Y)", false, 32.0).clicked() {
                 self.run("edit.redo", json!({}));
             }
+            if self.session.doc.is_some()
+                && theme::icon_button(
+                    ui,
+                    Icon::Text,
+                    "Copy text from the image (OCR)",
+                    false,
+                    32.0,
+                )
+                .clicked()
+            {
+                self.grab_document_text(ctx);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let has_doc = self.session.doc.is_some();
                 let video = self.video.as_ref().map(|v| v.path.clone());

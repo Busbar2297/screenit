@@ -132,14 +132,111 @@ fn menu(s: &mut Session, p: &Value) -> CmdResult {
     grab_rect(s, rect, "menu", &a)
 }
 
+/// Result of one OCR run.
+pub struct OcrOutput {
+    pub lines: Vec<screenit_capture::OcrLine>,
+    pub engine: &'static str,
+}
+
+impl OcrOutput {
+    pub fn text(&self) -> String {
+        self.lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+fn llm_lines(text: &str) -> Vec<screenit_capture::OcrLine> {
+    text.lines()
+        .map(|l| screenit_capture::OcrLine {
+            text: l.to_string(),
+            rect: screenit_geom::Rect::default(),
+        })
+        .collect()
+}
+
+/// Everything needed to run OCR off the UI thread (engines are shared handles).
+#[derive(Clone)]
+pub struct OcrJob {
+    ocr: Option<std::sync::Arc<dyn screenit_capture::Ocr>>,
+    llm: Option<std::sync::Arc<dyn screenit_capture::LlmOcr>>,
+    settings: crate::settings::OcrSettings,
+    lang: String,
+}
+
+impl OcrJob {
+    /// Recognise `image` with the engine chosen in settings (`windows`, `llm`, `windows_then_llm`).
+    pub fn run(&self, image: &screenit_raster::Raster) -> Result<OcrOutput, CommandError> {
+        let o = &self.settings;
+        let cfg = screenit_capture::LlmConfig {
+            url: o.llm_url.clone(),
+            model: o.llm_model.clone(),
+            timeout_secs: o.llm_timeout_secs,
+        };
+        let windows = || -> Result<Vec<screenit_capture::OcrLine>, CommandError> {
+            let ocr = self
+                .ocr
+                .clone()
+                .ok_or_else(|| CommandError::Disabled("no OCR engine available".into()))?;
+            ocr.recognize_lang(image, &self.lang)
+                .map_err(CommandError::failed)
+        };
+        let llm = || -> Result<Vec<screenit_capture::OcrLine>, CommandError> {
+            let l = self
+                .llm
+                .clone()
+                .ok_or_else(|| CommandError::Disabled("no language-model OCR available".into()))?;
+            l.transcribe(image, &cfg)
+                .map(|t| llm_lines(&t))
+                .map_err(CommandError::failed)
+        };
+        match o.engine.as_str() {
+            "llm" => Ok(OcrOutput {
+                lines: llm()?,
+                engine: "llm",
+            }),
+            "windows_then_llm" => match windows() {
+                Ok(lines) if lines.iter().any(|l| !l.text.trim().is_empty()) => Ok(OcrOutput {
+                    lines,
+                    engine: "windows",
+                }),
+                _ => Ok(OcrOutput {
+                    lines: llm()?,
+                    engine: "llm",
+                }),
+            },
+            _ => Ok(OcrOutput {
+                lines: windows()?,
+                engine: "windows",
+            }),
+        }
+    }
+}
+
+impl Session {
+    /// An OCR job using the current settings; `lang` overrides the configured language.
+    pub fn ocr_job(&self, lang: Option<&str>) -> OcrJob {
+        OcrJob {
+            ocr: self.services.ocr.clone(),
+            llm: self.services.llm.clone(),
+            settings: self.settings.ocr.clone(),
+            lang: lang.unwrap_or(&self.settings.ocr.language).to_string(),
+        }
+    }
+}
 /// Grab Text: recognise text in a screen region, or in the open document when no region is given.
 fn grab_text(s: &mut Session, p: &Value) -> CmdResult {
-    let a = Args::new(p, &["x", "y", "w", "h", "clipboard"])?;
-    let ocr = s
-        .services
-        .ocr
-        .clone()
-        .ok_or_else(|| CommandError::Disabled("no OCR engine available".into()))?;
+    let a = Args::new(p, &["x", "y", "w", "h", "clipboard", "lang"])?;
+    let lang = match a.opt_str("lang")? {
+        Some(l) if l.len() <= 16 && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => {
+            l.to_string()
+        }
+        Some(_) => return Err(CommandError::Params("`lang` is not a language tag".into())),
+        None => s.settings.ocr.language.clone(),
+    };
+    let job = s.ocr_job(Some(&lang));
     let image = if a.has("x") {
         s.screen()?
             .grab(rect_keys(&a)?)
@@ -147,20 +244,43 @@ fn grab_text(s: &mut Session, p: &Value) -> CmdResult {
     } else {
         screenit_compose::flatten(s.doc_ref()?)
     };
-    let lines = ocr.recognize(&image).map_err(CommandError::failed)?;
-    let text = lines
-        .iter()
-        .map(|l| l.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let out = job.run(&image)?;
+    let text = out.text();
+    let lines = out.lines;
     if a.bool("clipboard", true)? {
         if let Some(cb) = &s.services.clipboard {
             cb.set_text(&text).map_err(CommandError::Failed)?;
         }
     }
-    Ok(json!({"text": text, "lines": lines}))
+    Ok(json!({"text": text, "lines": lines, "engine": out.engine}))
 }
 
+/// Installed Windows OCR languages and the language-model server's models (a connection test).
+fn ocr_info(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["llm"])?;
+    let windows = s
+        .services
+        .ocr
+        .as_ref()
+        .map(|o| o.languages())
+        .unwrap_or_default();
+    let mut v = json!({"windows_languages": windows});
+    if a.bool("llm", false)? {
+        let o = &s.settings.ocr;
+        let cfg = screenit_capture::LlmConfig {
+            url: o.llm_url.clone(),
+            model: o.llm_model.clone(),
+            timeout_secs: o.llm_timeout_secs.min(10),
+        };
+        let l = s
+            .services
+            .llm
+            .clone()
+            .ok_or_else(|| CommandError::Disabled("no language-model OCR available".into()))?;
+        v["llm_models"] = json!(l.models(&cfg).map_err(CommandError::failed)?);
+    }
+    Ok(v)
+}
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
@@ -195,9 +315,18 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Grab Text",
             menu: "Capture",
             shortcut: "",
-            params: r#"{"x"?,"y"?,"w"?,"h"?,"clipboard"?:bool}"#,
+            params: r#"{"x"?,"y"?,"w"?,"h"?,"clipboard"?:bool,"lang"?:str}"#,
             enabled: always,
             run: grab_text,
+        },
+        CommandSpec {
+            id: "ocr.info",
+            label: "Text Recognition Info",
+            menu: "Capture",
+            shortcut: "",
+            params: r#"{"llm"?:bool}"#,
+            enabled: always,
+            run: ocr_info,
         },
     ]
 }

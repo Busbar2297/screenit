@@ -793,3 +793,12 @@ tier = 1
 status = "done"
 commands = ["settings.get", "settings.set", "settings.reset"]
 tests = ["settings::tests::set_validates_and_persists"]
+
+[[row]]
+id = "ocr.llm"
+group = "Text"
+title = "Language-model OCR (LM Studio) and Arabic/English recognition"
+tier = 3
+status = "done"
+commands = ["capture.grab_text", "ocr.info"]
+tests = ["commands::ocr_engine_setting_selects_windows_llm_or_fallback"]

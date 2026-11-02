@@ -10,6 +10,7 @@
 )]
 
 mod advanced_cmds;
+pub use advanced_cmds::{OcrJob, OcrOutput};
 mod args;
 mod capture_cmds;
 mod commands;
@@ -104,6 +105,7 @@ pub struct Services {
     pub video: Option<Arc<dyn VideoReader>>,
     pub video_writer: Option<Arc<dyn screenit_record::VideoWriter>>,
     pub ocr: Option<Arc<dyn screenit_capture::Ocr>>,
+    pub llm: Option<Arc<dyn screenit_capture::LlmOcr>>,
     pub camera: Option<Arc<dyn screenit_record::CameraSource>>,
     pub devices: Option<Arc<dyn screenit_record::AvDevices>>,
 }
@@ -118,6 +120,7 @@ impl Default for Services {
             video: None,
             video_writer: None,
             ocr: None,
+            llm: None,
             camera: None,
             devices: None,
         }

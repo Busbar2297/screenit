@@ -614,3 +614,46 @@ fn timelapse_captures_n_frames_at_interval() {
         .is_err()
     );
 }
+
+#[test]
+fn ocr_engine_setting_selects_windows_llm_or_fallback() {
+    use screenit_testkit::{FakeLlm, FakeOcr};
+    use std::sync::Arc;
+    let (mut s, _) = fake_session(40, 30);
+    s.dispatch("capture.region", &json!({"x":0,"y":0,"w":20,"h":20}))
+        .unwrap();
+    s.services.ocr = Some(Arc::new(FakeOcr(vec!["win".into()])));
+    s.services.llm = Some(Arc::new(FakeLlm(Some("llm text\nsecond".into()))));
+    let grab = |s: &mut screenit_engine::Session| {
+        s.dispatch("capture.grab_text", &json!({"clipboard": false}))
+    };
+    assert_eq!(grab(&mut s).unwrap()["engine"], "windows");
+    s.dispatch("settings.set", &json!({"path":"ocr.engine","value":"llm"}))
+        .unwrap();
+    let r = grab(&mut s).unwrap();
+    assert_eq!(
+        (r["engine"].as_str(), r["text"].as_str()),
+        (Some("llm"), Some("llm text\nsecond"))
+    );
+    // Fallback: Windows finds nothing, so the model is asked.
+    s.dispatch(
+        "settings.set",
+        &json!({"path":"ocr.engine","value":"windows_then_llm"}),
+    )
+    .unwrap();
+    assert_eq!(grab(&mut s).unwrap()["engine"], "windows");
+    s.services.ocr = Some(Arc::new(FakeOcr(vec![])));
+    assert_eq!(grab(&mut s).unwrap()["engine"], "llm");
+    // A dead server is an error, not a panic.
+    s.services.llm = Some(Arc::new(FakeLlm(None)));
+    assert!(grab(&mut s).is_err());
+    assert!(s.dispatch("ocr.info", &json!({"llm": true})).is_err());
+    assert!(
+        s.dispatch("capture.grab_text", &json!({"lang": "../x"}))
+            .is_err(),
+        "bad language tags are rejected"
+    );
+    s.services.llm = Some(Arc::new(FakeLlm(Some("x".into()))));
+    let info = s.dispatch("ocr.info", &json!({"llm": true})).unwrap();
+    assert_eq!(info["llm_models"][0], "fake-model");
+}
