@@ -88,3 +88,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - mf.rs: hardware MFT first above 1080p with software fallback (retry on sharing violation), H.264 High + level by macroblock rate (4.0..5.2), bitrate 0.125 bpp capped at 100 Mbit/s (H.265 x0.6), threaded bilinear scaler, two-stage pipeline (grab | convert+write), 1 ms timer resolution during recording (default tick capped 30 fps loops near 24).
 - Measured here: 2560x1600 native 57 fps at target 60, 28 at 30 (variable); 3840x2400 scaled 33 fps at target 45. 2560x1440 and 3840x2160 encode/decode tests check bar positions for shear.
 - Examples: dup_probe (GDI vs DXGI ms/frame), rec_probe (record the primary monitor at a size).
+
+## 2026-11-02 - LM Studio API key and Grab Text in the UI
+- Added ocr.llm_api_key (Settings > Text recognition, masked field), sent as Bearer token (default lm-studio); test covers header and CR/LF stripping.
+- Added Grab text tile on the capture bar and a top-bar button: pick an area or window on the frozen overlay, OCR it, copy to clipboard.
+- 6 new i18n keys in all 28 locales (English fallback text except Arabic).
+- Still open: translate the new keys; the key is stored in plain text in settings.json.

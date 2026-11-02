@@ -30,6 +30,18 @@ fn base_url(cfg: &LlmConfig) -> Result<String, CaptureError> {
     Ok(u.to_string())
 }
 
+/// `Authorization` header value; LM Studio ignores the key, other servers need a real one.
+fn auth(cfg: &LlmConfig) -> String {
+    let k: String = cfg
+        .api_key
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(512)
+        .collect();
+    let k = k.trim();
+    format!("Bearer {}", if k.is_empty() { "lm-studio" } else { k })
+}
+
 fn agent(cfg: &LlmConfig) -> ureq::Agent {
     let secs = u64::from(cfg.timeout_secs.clamp(1, 600));
     ureq::Agent::config_builder()
@@ -120,6 +132,7 @@ impl LlmOcr for LmStudio {
         let mut resp = agent(cfg)
             .post(&url)
             .header("Content-Type", "application/json")
+            .header("Authorization", &auth(cfg))
             .send(&body)
             .map_err(|e| err("request", e))?;
         let text = resp
@@ -133,7 +146,11 @@ impl LlmOcr for LmStudio {
 
     fn models(&self, cfg: &LlmConfig) -> Result<Vec<String>, CaptureError> {
         let url = format!("{}/models", base_url(cfg)?);
-        let mut resp = agent(cfg).get(&url).call().map_err(|e| err("request", e))?;
+        let mut resp = agent(cfg)
+            .get(&url)
+            .header("Authorization", &auth(cfg))
+            .call()
+            .map_err(|e| err("request", e))?;
         let text = resp
             .body_mut()
             .with_config()
@@ -197,6 +214,7 @@ mod tests {
         LlmConfig {
             url: url.into(),
             model: "qwen2-vl".into(),
+            api_key: String::new(),
             timeout_secs: 2,
         }
     }
@@ -225,6 +243,30 @@ mod tests {
         assert!(req.starts_with("POST /v1/chat/completions"));
         assert!(req.contains("data:image/png;base64,"));
         assert!(req.contains("qwen2-vl"));
+    }
+
+    #[test]
+    fn sends_the_api_key_as_a_bearer_token() {
+        let (url, h) = serve(vec![
+            (200, r#"{"data":[]}"#.into(), 0),
+            (200, r#"{"data":[]}"#.into(), 0),
+        ]);
+        let mut c = cfg(&url);
+        c.api_key = "  sk-secret\r\nX: y ".into();
+        LmStudio.models(&c).unwrap();
+        c.api_key = String::new();
+        LmStudio.models(&c).unwrap();
+        let reqs = h.join().unwrap();
+        assert!(
+            reqs[0].contains("authorization: Bearer sk-secretX: y")
+                || reqs[0].contains("Authorization: Bearer sk-secretX: y")
+        );
+        assert!(!reqs[0].contains("\r\nX: y"));
+        assert!(
+            reqs[1]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer lm-studio")
+        );
     }
 
     #[test]

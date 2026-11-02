@@ -15,6 +15,8 @@ pub struct Overlay {
     focused: bool,
     /// Picking the area to record rather than to capture.
     pub record: bool,
+    /// Picking the area to read text from.
+    pub text: bool,
 }
 
 impl Overlay {
@@ -33,6 +35,7 @@ impl Overlay {
             start: None,
             focused: false,
             record: false,
+            text: false,
         }
     }
 }
@@ -68,8 +71,8 @@ pub fn drive(app: &mut UiApp, ctx: &egui::Context) {
     ctx.request_repaint();
     match outcome {
         Outcome::None => app.overlay = Some(ov),
-        Outcome::Cancel => app.finish_overlay(ctx, ov.frozen, None, ov.record),
-        Outcome::Pick(sel) => app.finish_overlay(ctx, ov.frozen, Some(sel), ov.record),
+        Outcome::Cancel => app.finish_overlay(ctx, ov.frozen, None, ov.record, ov.text),
+        Outcome::Pick(sel) => app.finish_overlay(ctx, ov.frozen, Some(sel), ov.record, ov.text),
     }
 }
 

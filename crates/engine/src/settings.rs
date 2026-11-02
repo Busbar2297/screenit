@@ -73,6 +73,8 @@ pub struct OcrSettings {
     pub language: String,
     pub llm_url: String,
     pub llm_model: String,
+    /// Stored in the settings file in plain text; empty for LM Studio's default.
+    pub llm_api_key: String,
     pub llm_timeout_secs: u32,
 }
 
@@ -83,6 +85,7 @@ impl Default for OcrSettings {
             language: "auto".into(),
             llm_url: "http://localhost:1234/v1".into(),
             llm_model: String::new(),
+            llm_api_key: String::new(),
             llm_timeout_secs: 60,
         }
     }

@@ -173,6 +173,7 @@ impl OcrJob {
         let cfg = screenit_capture::LlmConfig {
             url: o.llm_url.clone(),
             model: o.llm_model.clone(),
+            api_key: o.llm_api_key.clone(),
             timeout_secs: o.llm_timeout_secs,
         };
         let windows = || -> Result<Vec<screenit_capture::OcrLine>, CommandError> {
@@ -270,6 +271,7 @@ fn ocr_info(s: &mut Session, p: &Value) -> CmdResult {
         let cfg = screenit_capture::LlmConfig {
             url: o.llm_url.clone(),
             model: o.llm_model.clone(),
+            api_key: o.llm_api_key.clone(),
             timeout_secs: o.llm_timeout_secs.min(10),
         };
         let l = s

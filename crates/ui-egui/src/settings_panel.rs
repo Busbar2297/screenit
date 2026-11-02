@@ -281,6 +281,14 @@ impl UiApp {
                     .desired_width(320.0),
             );
         });
+        row(ui, &t("ocr.api_key"), |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut o.llm_api_key)
+                    .password(true)
+                    .hint_text(t("ocr.api_key.hint"))
+                    .desired_width(320.0),
+            );
+        });
         row(ui, &t("ocr.timeout"), |ui| {
             ui.add(
                 egui::DragValue::new(&mut o.llm_timeout_secs)
@@ -303,6 +311,7 @@ impl UiApp {
         let url = o.llm_url.clone();
         let model = o.llm_model.clone();
         let timeout = o.llm_timeout_secs;
+        let api_key = o.llm_api_key.clone();
         crate::h_row(ui, |ui| {
             if ui
                 .add_enabled(self.llm_rx.is_none(), egui::Button::new(t("ocr.test")))
@@ -317,6 +326,7 @@ impl UiApp {
                     let cfg = screenit_capture::LlmConfig {
                         url,
                         model,
+                        api_key,
                         timeout_secs: timeout.min(10),
                     };
                     let _ = tx.send(llm.models(&cfg).map_err(|e| e.to_string()));
@@ -375,6 +385,43 @@ impl UiApp {
             return;
         }
         let image = screenit_compose::flatten(doc);
+        self.start_ocr(ctx, image);
+    }
+
+    /// The text overlay picked an area (or a window): read its text and copy it, no editor.
+    pub(crate) fn finish_text_pick(
+        &mut self,
+        ctx: &egui::Context,
+        frozen: &screenit_capture::FrozenScreen,
+        sel: Option<screenit_capture::Selection>,
+    ) {
+        use screenit_capture::{ScreenSource, Selection};
+        let rect = match sel {
+            Some(Selection::Region { rect }) => Some(rect),
+            Some(Selection::Window { id }) => frozen
+                .windows_snapshot()
+                .iter()
+                .find(|w| w.id == id)
+                .map(|w| w.rect),
+            _ => None,
+        };
+        if let Some(r) = rect.filter(|r| !r.is_empty()) {
+            match frozen.grab(r) {
+                Ok(image) => self.start_ocr(ctx, image),
+                Err(e) => self.status = tf("status.ocr_failed", &[("error", &e.to_string())]),
+            }
+        }
+        if self.tray {
+            self.settle_after_capture();
+        } else {
+            self.restore_window(ctx);
+        }
+    }
+
+    fn start_ocr(&mut self, ctx: &egui::Context, image: screenit_raster::Raster) {
+        if self.ocr_rx.is_some() {
+            return;
+        }
         let job = self.session.ocr_job(None);
         let (tx, rx) = std::sync::mpsc::channel();
         self.ocr_rx = Some(rx);

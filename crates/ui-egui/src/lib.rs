@@ -108,7 +108,7 @@ pub(crate) enum View {
     Settings,
 }
 
-const COMPACT_SIZE: [f32; 2] = [812.0, 252.0];
+const COMPACT_SIZE: [f32; 2] = [906.0, 252.0];
 const EDITOR_SIZE: [f32; 2] = [1280.0, 820.0];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -116,13 +116,18 @@ pub(crate) enum Pending {
     Overlay,
     /// The overlay, picking the area to record.
     RecordOverlay,
+    /// The overlay, picking the area to read text from.
+    TextOverlay,
     Fullscreen,
     Preset,
 }
 
 impl Pending {
     fn is_overlay(self) -> bool {
-        matches!(self, Pending::Overlay | Pending::RecordOverlay)
+        matches!(
+            self,
+            Pending::Overlay | Pending::RecordOverlay | Pending::TextOverlay
+        )
     }
 }
 
@@ -326,7 +331,7 @@ impl UiApp {
                     self.show_capture(&v);
                 }
             }
-            Pending::Overlay | Pending::RecordOverlay => match self
+            Pending::Overlay | Pending::RecordOverlay | Pending::TextOverlay => match self
                 .session
                 .screen()
                 .map(|s| FrozenScreen::snapshot(s.as_ref()))
@@ -334,6 +339,7 @@ impl UiApp {
                 Ok(Ok(frozen)) => {
                     let mut ov = overlay::Overlay::new(ctx, Arc::new(frozen));
                     ov.record = what == Pending::RecordOverlay;
+                    ov.text = what == Pending::TextOverlay;
                     self.overlay = Some(ov);
                     show = false;
                 }
@@ -358,8 +364,13 @@ impl UiApp {
         frozen: Arc<FrozenScreen>,
         sel: Option<Selection>,
         record: bool,
+        text: bool,
     ) {
         self.overlay = None;
+        if text {
+            self.finish_text_pick(ctx, &frozen, sel);
+            return;
+        }
         if record {
             let rect = match sel {
                 Some(Selection::Region { rect }) => Some(rect),

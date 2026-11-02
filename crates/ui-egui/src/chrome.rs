@@ -131,6 +131,19 @@ impl UiApp {
             }
             if theme::tile(
                 ui,
+                Icon::Text,
+                &t("bar.grab_text"),
+                &t("bar.grab_text.sub"),
+                ts,
+                true,
+            )
+            .on_hover_text(t("bar.grab_text.tip"))
+            .clicked()
+            {
+                self.start_capture(ctx, Pending::TextOverlay, None);
+            }
+            if theme::tile(
+                ui,
                 Icon::Clipboard,
                 &t("bar.paste"),
                 &t("bar.paste.sub"),
@@ -220,6 +233,9 @@ impl UiApp {
             if theme::icon_button(ui, Icon::Fullscreen, &t("top.fullscreen"), false, 32.0).clicked()
             {
                 self.start_capture(ctx, Pending::Fullscreen, None);
+            }
+            if theme::icon_button(ui, Icon::Text, &t("top.grab_text"), false, 32.0).clicked() {
+                self.start_capture(ctx, Pending::TextOverlay, None);
             }
             if theme::icon_button(ui, Icon::Clipboard, &t("top.paste"), false, 32.0).clicked()
                 && self.run("capture.import.clipboard", json!({})).is_some()

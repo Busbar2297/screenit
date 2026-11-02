@@ -115,6 +115,8 @@ pub trait Ocr: Send + Sync {
 pub struct LlmConfig {
     pub url: String,
     pub model: String,
+    /// Bearer token for servers that require one (LM Studio allows an empty key).
+    pub api_key: String,
     pub timeout_secs: u32,
 }
 
