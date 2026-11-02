@@ -292,8 +292,11 @@ impl UiApp {
                 self.run("edit.redo", json!({}));
             }
             if self.session.doc.is_some()
-                && theme::icon_button(ui, Icon::Text, &t("top.ocr"), false, 32.0).clicked()
+                && theme::pill(ui, Icon::Text, &t("top.grab_image"), false)
+                    .on_hover_text(t("top.ocr"))
+                    .clicked()
             {
+                self.reading = None;
                 self.grab_document_text(ctx);
             }
             ui.with_layout(crate::far_layout(), |ui| {

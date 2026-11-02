@@ -30,6 +30,7 @@ pub enum Kind {
     Image,
     Video,
     Gif,
+    Text,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +46,9 @@ pub struct Entry {
     pub width: u32,
     pub height: u32,
     pub tags: Vec<String>,
+    /// Full text for a [`Kind::Text`] entry. Empty for images and video. Capped by the writer.
+    #[serde(default)]
+    pub body: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -229,6 +233,7 @@ impl Library {
             .filter(|e| {
                 text.as_ref().is_none_or(|t| {
                     e.title.to_lowercase().contains(t)
+                        || e.body.to_lowercase().contains(t)
                         || e.app.to_lowercase().contains(t)
                         || e.url.as_ref().is_some_and(|u| u.to_lowercase().contains(t))
                         || e.tags.iter().any(|g| g.contains(t))
@@ -267,6 +272,7 @@ mod tests {
             width: 10,
             height: 10,
             tags: vec![],
+            body: String::new(),
         }
     }
 
@@ -298,6 +304,19 @@ mod tests {
         );
         assert_eq!(q(&|q| q.kind = Some(Kind::Video)), ["Demo"]);
         assert_eq!(q(&|q| q.text = Some("inv".into())), ["Invoice"]);
+        let mut text = entry("Grab", "", 400, Kind::Text);
+        text.body = "invoice total 42".into();
+        let mut with_body = lib();
+        with_body.add(text).unwrap();
+        assert_eq!(
+            with_body
+                .query(&Query {
+                    text: Some("total".into()),
+                    ..Default::default()
+                })
+                .len(),
+            1
+        );
         assert_eq!(
             q(&|q| {
                 q.from = Some(150);

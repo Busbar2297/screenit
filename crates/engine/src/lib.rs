@@ -92,6 +92,7 @@ pub trait Clipboard: Send + Sync {
     fn set_image(&self, img: &Raster) -> Result<(), String>;
     fn get_image(&self) -> Result<Raster, String>;
     fn set_text(&self, text: &str) -> Result<(), String>;
+    fn get_text(&self) -> Result<String, String>;
 }
 
 pub type RecorderFactory = Box<dyn Fn() -> Box<dyn Recorder> + Send>;

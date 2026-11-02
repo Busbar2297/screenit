@@ -141,6 +141,31 @@ impl Clipboard for Win32Clipboard {
         }
         set_global(CF_UNICODETEXT, bytes)
     }
+
+    fn get_text(&self) -> Result<String, String> {
+        let _guard = Open::new()?;
+        // SAFETY: clipboard is open; the handle stays valid while locked and we copy out of it.
+        unsafe {
+            if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {
+                return Err("clipboard has no text".into());
+            }
+            let h = GetClipboardData(CF_UNICODETEXT);
+            if h.is_null() {
+                return Err("clipboard has no text".into());
+            }
+            let size = GlobalSize(h);
+            let p = GlobalLock(h) as *const u16;
+            if p.is_null() || size < 2 {
+                return Err("clipboard text unreadable".into());
+            }
+            let n = (size / 2).min(1_000_000);
+            let slice = std::slice::from_raw_parts(p, n);
+            let end = slice.iter().position(|c| *c == 0).unwrap_or(slice.len());
+            let text = String::from_utf16_lossy(&slice[..end]);
+            GlobalUnlock(h);
+            Ok(text)
+        }
+    }
 }
 
 fn decode_dib(hdr: &BITMAPINFOHEADER, data: &[u8]) -> Result<Raster, String> {

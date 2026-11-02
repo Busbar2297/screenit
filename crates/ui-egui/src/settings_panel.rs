@@ -30,6 +30,13 @@ fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[(String, St
         });
 }
 
+/// One line from the clipboard, or nothing when it is empty or not text.
+fn clipboard_text(app: &UiApp) -> Option<String> {
+    let text = app.session.services.clipboard.as_ref()?.get_text().ok()?;
+    let text = text.trim().replace(['\r', '\n'], "");
+    if text.is_empty() { None } else { Some(text) }
+}
+
 fn opts(list: &[(&str, String)]) -> Vec<(String, String)> {
     list.iter()
         .map(|(v, l)| ((*v).to_string(), l.clone()))
@@ -272,7 +279,16 @@ impl UiApp {
         ui.label(egui::RichText::new(t("ocr.server")).strong());
         ui.add_space(4.0);
         row(ui, &t("ocr.url"), |ui| {
-            ui.add(egui::TextEdit::singleline(&mut o.llm_url).desired_width(320.0));
+            // Left to right even in an Arabic layout: a URL is Latin, and a right-to-left
+            // row makes this field drop pasted text.
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::TextEdit::singleline(&mut o.llm_url).desired_width(320.0));
+                if ui.small_button(t("ocr.paste")).clicked()
+                    && let Some(text) = clipboard_text(self)
+                {
+                    o.llm_url = text;
+                }
+            });
         });
         row(ui, &t("ocr.model"), |ui| {
             ui.add(
@@ -282,12 +298,19 @@ impl UiApp {
             );
         });
         row(ui, &t("ocr.api_key"), |ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut o.llm_api_key)
-                    .password(true)
-                    .hint_text(t("ocr.api_key.hint"))
-                    .desired_width(320.0),
-            );
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut o.llm_api_key)
+                        .password(true)
+                        .hint_text(t("ocr.api_key.hint"))
+                        .desired_width(320.0),
+                );
+                if ui.small_button(t("ocr.paste")).clicked()
+                    && let Some(text) = clipboard_text(self)
+                {
+                    o.llm_api_key = text;
+                }
+            });
         });
         row(ui, &t("ocr.timeout"), |ui| {
             ui.add(
@@ -362,14 +385,16 @@ impl UiApp {
                     if let Some(cb) = &self.session.services.clipboard {
                         let _ = cb.set_text(&text);
                     }
-                    self.status = if n == 0 {
-                        t("status.no_text")
+                    if n == 0 {
+                        self.status = t("status.no_text");
                     } else {
-                        tf(
+                        let saved = self.session.store_text(&text).is_ok();
+                        self.status = tf(
                             "status.copied_text",
                             &[("n", &n.to_string()), ("engine", out.engine)],
-                        )
-                    };
+                        );
+                        self.toast = Some(crate::toast::Notice::copied(&text, saved));
+                    }
                 }
                 Err(e) => self.status = tf("status.ocr_failed", &[("error", &e)]),
             }

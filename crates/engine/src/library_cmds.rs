@@ -12,9 +12,10 @@ fn list(s: &mut Session, p: &Value) -> CmdResult {
         Some("image") => Some(Kind::Image),
         Some("video") => Some(Kind::Video),
         Some("gif") => Some(Kind::Gif),
+        Some("text") => Some(Kind::Text),
         Some(o) => {
             return Err(CommandError::Params(format!(
-                "unknown kind `{o}` (image|video|gif)"
+                "unknown kind `{o}` (image|video|gif|text)"
             )));
         }
     };
@@ -105,6 +106,15 @@ fn share(s: &mut Session, p: &Value) -> CmdResult {
                 .clipboard
                 .clone()
                 .ok_or_else(|| CommandError::Disabled("no clipboard available".into()))?;
+            if e.kind == Kind::Text {
+                let text = if e.body.is_empty() {
+                    std::fs::read_to_string(&e.path).map_err(CommandError::failed)?
+                } else {
+                    e.body.clone()
+                };
+                clip.set_text(&text).map_err(CommandError::Failed)?;
+                return Ok(json!({"copied": true}));
+            }
             let img = if screenit_format::is_project(&e.path) {
                 let d = screenit_format::load(&e.path).map_err(CommandError::failed)?;
                 screenit_compose::flatten(&d)
@@ -143,7 +153,7 @@ pub fn specs() -> Vec<CommandSpec> {
         c(
             "library.list",
             "Search Library",
-            r#"{"text"?,"kind"?:image|video|gif,"app"?,"tag"?,"from"?:unix,"to"?:unix,"sort"?:date_desc|date_asc|title|app}"#,
+            r#"{"text"?,"kind"?:image|video|gif|text,"app"?,"tag"?,"from"?:unix,"to"?:unix,"sort"?:date_desc|date_asc|title|app}"#,
             list,
         ),
         c(

@@ -94,3 +94,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Added Grab text tile on the capture bar and a top-bar button: pick an area or window on the frozen overlay, OCR it, copy to clipboard.
 - 6 new i18n keys in all 28 locales (English fallback text except Arabic).
 - Still open: translate the new keys; the key is stored in plain text in settings.json.
+
+## 2026-11-02 - Grab text library, paste, Arabic font
+- Grab text (open image or screen area) copies to the clipboard, stores a text entry in the library, and shows an always-on-top notice.
+- Enabled the egui clipboard feature and added Paste buttons; Ctrl+V was a no-op because clipboard support was compiled out.
+- Arabic UI uses Tahoma/Arial as the primary font so presentation forms draw. Latin inside Arabic strings stays in order.
+- Still open: translate the newest keys; the API key is plain text in settings.json.

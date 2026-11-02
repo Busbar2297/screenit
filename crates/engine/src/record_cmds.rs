@@ -220,6 +220,7 @@ fn stop(s: &mut Session, p: &Value) -> CmdResult {
             width: res.width,
             height: res.height,
             tags: vec![],
+            body: String::new(),
         })
         .map_err(CommandError::failed)?;
     let out = json!({"result": res});

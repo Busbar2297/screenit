@@ -436,6 +436,13 @@ mod tests {
         assert!(shown.chars().all(is_rtl_char), "presentation forms");
         // Visual order of an isolated word is the reverse of its logical order.
         assert_eq!(shown.chars().count(), 5);
+        // Visual order: the last logical letter (alef, final form) is drawn first.
+        assert_eq!(shown.chars().next(), Some('\u{FE8E}'));
+        let status = display("\u{062C}\u{0627}\u{0647}\u{0632}. \u{0627}\u{0636}\u{063A}\u{0637} Print Screen \u{0644}\u{0644}\u{0627}\u{0644}\u{062A}\u{0642}\u{0627}\u{0637}.");
+        assert!(
+            status.contains("Print Screen"),
+            "latin run reversed: {status}"
+        );
         // Numbers inside RTL text stay readable left to right.
         let mixed = display("\u{645}\u{631}\u{62D}\u{628}\u{627} 1920");
         assert!(mixed.starts_with("1920"));

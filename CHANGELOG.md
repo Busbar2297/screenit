@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Grab text from the open image or from a screen area. The text is copied to the clipboard, saved in the library, and a notification shows the result.
+- Paste works in the LM Studio server URL and API key fields, with a Paste button beside each.
+- Arabic interface text uses a font that contains Arabic letters, so it no longer draws as boxes.
+
 ## 0.2.0
 
 - Settings view with saved preferences; after a capture, open the editor or save silently.

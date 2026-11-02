@@ -197,6 +197,13 @@ impl screenit_engine::Clipboard for FakeClipboard {
         *self.text.lock().map_err(|e| e.to_string())? = Some(text.to_string());
         Ok(())
     }
+    fn get_text(&self) -> Result<String, String> {
+        self.text
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or_else(|| "clipboard has no text".to_string())
+    }
 }
 
 /// Recorder that produces no video, only a deterministic result; exercises the state machine.

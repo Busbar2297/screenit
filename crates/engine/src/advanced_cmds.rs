@@ -217,6 +217,50 @@ impl OcrJob {
 }
 
 impl Session {
+    /// Write recognised text into the save folder and the library (`Kind::Text`).
+    /// The stored text is capped so a huge reply cannot grow the index without bound.
+    pub fn store_text(&mut self, text: &str) -> Result<std::path::PathBuf, CommandError> {
+        const MAX_CHARS: usize = 100_000;
+        let text: String = text.trim().chars().take(MAX_CHARS).collect();
+        if text.is_empty() {
+            return Err(CommandError::Failed("no text to store".into()));
+        }
+        let dir = self
+            .prefs
+            .auto_save_dir
+            .clone()
+            .or_else(|| self.default_save_dir.clone())
+            .ok_or_else(|| CommandError::Failed("no save folder configured".into()))?;
+        std::fs::create_dir_all(&dir).map_err(CommandError::failed)?;
+        let secs = self.services.clock.unix_secs();
+        self.capture_counter = self.capture_counter.saturating_add(1);
+        let path = dir.join(format!("text-{secs}-{}.txt", self.capture_counter));
+        std::fs::write(&path, text.as_bytes()).map_err(CommandError::failed)?;
+        let title: String = text
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("Text")
+            .chars()
+            .take(80)
+            .collect();
+        self.library
+            .add(screenit_library::Entry {
+                id: 0,
+                kind: screenit_library::Kind::Text,
+                path: path.clone(),
+                title,
+                app: String::new(),
+                url: None,
+                created: secs,
+                width: 0,
+                height: 0,
+                tags: vec![],
+                body: text,
+            })
+            .map_err(CommandError::failed)?;
+        Ok(path)
+    }
+
     /// An OCR job using the current settings; `lang` overrides the configured language.
     pub fn ocr_job(&self, lang: Option<&str>) -> OcrJob {
         OcrJob {
@@ -331,4 +375,31 @@ pub fn specs() -> Vec<CommandSpec> {
             run: ocr_info,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_text_writes_a_library_entry() {
+        let mut s = Session::new(crate::Services::default());
+        let dir = std::env::temp_dir().join(format!("scit-text-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        s.default_save_dir = Some(dir.clone());
+        let path = s.store_text("  hello library\nsecond ").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "hello library\nsecond"
+        );
+        let hits = s.library.query(&screenit_library::Query {
+            text: Some("second".into()),
+            ..Default::default()
+        });
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].kind, screenit_library::Kind::Text);
+        assert_eq!(hits[0].title, "hello library");
+        assert!(s.store_text("   ").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

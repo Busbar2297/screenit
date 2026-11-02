@@ -10,6 +10,7 @@ mod overlay;
 mod recording;
 mod settings_panel;
 mod theme;
+mod toast;
 
 use icons::Icon;
 
@@ -173,6 +174,9 @@ pub struct UiApp {
     pub(crate) llm_rx: Option<Receiver<Result<Vec<String>, String>>>,
     pub(crate) ocr_rx: Option<Receiver<Result<screenit_engine::OcrOutput, String>>>,
     pub(crate) settings_tab: settings_panel::Tab,
+    /// Grabbed text opened from the library, shown instead of the canvas.
+    pub(crate) reading: Option<String>,
+    pub(crate) toast: Option<toast::Notice>,
     /// Language whose fonts are installed (empty until the first frame).
     applied_lang: String,
 }
@@ -216,6 +220,8 @@ impl UiApp {
             llm_rx: None,
             ocr_rx: None,
             settings_tab: settings_panel::Tab::General,
+            reading: None,
+            toast: None,
             applied_lang: String::new(),
         }
     }
@@ -590,6 +596,7 @@ impl eframe::App for UiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         overlay::drive(self, &ctx);
+        toast::drive(self, &ctx);
         self.drive_recording(&ctx);
         if self.view != View::Compact
             && ctx.input_mut(|i| {
@@ -666,7 +673,13 @@ impl eframe::App for UiApp {
                     .show(ui, |ui| self.properties(ui));
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::CANVAS, 0))
-                    .show(ui, |ui| canvas::show(self, ui));
+                    .show(ui, |ui| {
+                        if self.reading.is_some() {
+                            self.text_view(ui);
+                        } else {
+                            canvas::show(self, ui);
+                        }
+                    });
             }
         }
     }

@@ -114,6 +114,7 @@ pub(crate) fn finish(s: &mut Session, out: CaptureOutput, o: &Opts) -> CmdResult
                 width: w,
                 height: h,
                 tags: vec![],
+                body: String::new(),
             })
             .map_err(CommandError::failed)?;
         saved = json!(path.to_string_lossy());

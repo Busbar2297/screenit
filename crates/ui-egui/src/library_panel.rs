@@ -46,6 +46,9 @@ const THUMB_W: f32 = 220.0;
 const THUMB_H: f32 = 138.0;
 
 fn load_thumb(app: &UiApp, e: &Value) -> Option<egui::ColorImage> {
+    if e["kind"].as_str() == Some("text") {
+        return None;
+    }
     let path = std::path::PathBuf::from(e["path"].as_str()?);
     let img = if e["kind"].as_str() == Some("video") {
         app.session
@@ -225,7 +228,7 @@ impl UiApp {
             });
         if let Some((what, id)) = action {
             match what {
-                "open" => self.open_library_entry(id, &entries),
+                "open" => self.open_library_entry(id, &entries, ui.ctx()),
                 "copy" => {
                     if self
                         .run("library.share", json!({"id": id, "mode": "clipboard"}))
@@ -242,10 +245,19 @@ impl UiApp {
         }
     }
 
-    fn open_library_entry(&mut self, id: u64, entries: &[Value]) {
+    fn open_library_entry(&mut self, id: u64, entries: &[Value], ctx: &egui::Context) {
         let Some(e) = entries.iter().find(|e| e["id"].as_u64() == Some(id)) else {
             return;
         };
+        if e["kind"].as_str() == Some("text") {
+            self.video = None;
+            let body = e["body"].as_str().unwrap_or("").to_string();
+            self.reading = Some(screenit_i18n::display(&body));
+            self.enter_view(ctx, View::Editor);
+            self.status = screenit_i18n::t("status.opened_text");
+            return;
+        }
+        self.reading = None;
         if e["kind"].as_str() == Some("video") {
             let path = e["path"].as_str().unwrap_or_default().to_string();
             match self.session.dispatch("video.probe", &json!({"path": path})) {
@@ -262,6 +274,23 @@ impl UiApp {
             self.view = View::Editor;
             self.status = "Opened from library".into();
         }
+    }
+
+    /// Saved grab, shown in place of the canvas. The text is already shaped for display.
+    pub(crate) fn text_view(&mut self, ui: &mut egui::Ui) {
+        let Some(text) = &mut self.reading else {
+            return;
+        };
+        egui::Frame::default().inner_margin(18).show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(text)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(24)
+                        .font(egui::TextStyle::Body),
+                );
+            });
+        });
     }
 
     /// One library card: rounded thumbnail, capture time and title; accent border on hover.
@@ -308,7 +337,19 @@ impl UiApp {
                 egui::Color32::WHITE,
             );
         }
-        if e["kind"].as_str() == Some("video") {
+        if e["kind"].as_str() == Some("text") {
+            let body = e["body"]
+                .as_str()
+                .unwrap_or(e["title"].as_str().unwrap_or(""));
+            let shown = screenit_i18n::display(body);
+            let galley = p.layout(
+                shown,
+                egui::FontId::proportional(13.0),
+                theme::TEXT,
+                thumb.width() - 16.0,
+            );
+            p.galley(thumb.min + egui::vec2(8.0, 8.0), galley, theme::TEXT);
+        } else if e["kind"].as_str() == Some("video") {
             let c = thumb.center();
             p.circle_filled(c, 20.0, egui::Color32::from_black_alpha(150));
             icons::paint(
