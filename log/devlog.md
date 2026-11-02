@@ -56,3 +56,7 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## Dark title bar on launch, single instance
 - platform::window::dark_title_bar sets DWMWA_USE_IMMERSIVE_DARK_MODE and forces SWP_FRAMECHANGED on the first frame (otherwise the caption stays light until the next activation change).
 - platform/instance.rs: named mutex + auto-reset event. A second launch grants AllowSetForegroundWindow, signals the event and exits; the first instance shows and activates its window.
+
+## Settings
+- engine/settings.rs: versioned serde Settings (general, recording, ocr, presets) in %LOCALAPPDATA%\screenIt\settings.json, atomic write, corrupt file -> defaults, invalid values repaired. Commands settings.get/set/reset/open; presets persist on save/delete.
+- ui-egui: View::Settings (gear in capture bar and top bar), live edits.

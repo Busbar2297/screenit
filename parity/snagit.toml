@@ -784,3 +784,12 @@ tier = 2
 status = "done"
 commands = ["command.list"]
 tests = ["commands::mcp_lists_every_command_and_calls_tools"]
+
+[[row]]
+id = "set.persist"
+group = "Settings"
+title = "Persisted settings with a Settings view"
+tier = 1
+status = "done"
+commands = ["settings.get", "settings.set", "settings.reset"]
+tests = ["settings::tests::set_validates_and_persists"]

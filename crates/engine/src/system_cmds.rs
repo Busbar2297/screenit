@@ -39,6 +39,36 @@ fn set(s: &mut Session, p: &Value) -> CmdResult {
     get(s, &Value::Null)
 }
 
+fn settings_get(s: &mut Session, p: &Value) -> CmdResult {
+    Args::new(p, &[])?;
+    serde_json::to_value(&s.settings).map_err(|e| crate::CommandError::Failed(e.to_string()))
+}
+
+fn settings_set(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["path", "value"])?;
+    let path = a.str("path")?.to_string();
+    let value = p.get("value").cloned().unwrap_or(Value::Null);
+    s.set_setting(&path, value)?;
+    settings_get(s, &Value::Null)
+}
+
+fn settings_reset(s: &mut Session, p: &Value) -> CmdResult {
+    Args::new(p, &[])?;
+    let presets = s.settings.presets.clone();
+    s.settings = crate::settings::Settings {
+        presets,
+        ..Default::default()
+    };
+    s.apply_settings();
+    s.persist_settings()?;
+    settings_get(s, &Value::Null)
+}
+
+fn settings_open(s: &mut Session, p: &Value) -> CmdResult {
+    Args::new(p, &[])?;
+    Ok(json!({"path": s.settings_path}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     let c = |id, label, params, run| CommandSpec {
         id,
@@ -51,6 +81,20 @@ pub fn specs() -> Vec<CommandSpec> {
     };
     vec![
         c("command.list", "List Commands", "{}", list),
+        c("settings.get", "Get Settings", "{}", settings_get),
+        c(
+            "settings.set",
+            "Set Setting",
+            r#"{"path":str,"value":any}"#,
+            settings_set,
+        ),
+        c("settings.reset", "Reset Settings", "{}", settings_reset),
+        c(
+            "settings.open",
+            "Settings File Location",
+            "{}",
+            settings_open,
+        ),
         c("prefs.get", "Get Preferences", "{}", get),
         c(
             "prefs.set",

@@ -317,6 +317,7 @@ fn preset_save(s: &mut Session, p: &Value) -> CmdResult {
     s.presets
         .retain(|x| !x.name.eq_ignore_ascii_case(&preset.name));
     s.presets.push(preset);
+    s.persist_settings()?;
     Ok(json!({"count": s.presets.len(), "conflicts": cap::hotkey_conflicts(&s.presets)}))
 }
 
@@ -328,6 +329,7 @@ fn preset_delete(s: &mut Session, p: &Value) -> CmdResult {
     if s.presets.len() == before {
         return Err(CommandError::Failed(format!("no preset named `{name}`")));
     }
+    s.persist_settings()?;
     Ok(json!({"count": s.presets.len()}))
 }
 

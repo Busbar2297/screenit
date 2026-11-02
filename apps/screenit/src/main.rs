@@ -47,7 +47,8 @@ fn main() {
     if let Ok(lib) = screenit_library::Library::open(&dir.join("library")) {
         session.library = lib;
     }
-    session.prefs.auto_save_dir = Some(screenit_platform::shell::output_dir());
+    session.default_save_dir = Some(screenit_platform::shell::output_dir());
+    session.use_settings_file(dir.join("settings.json"));
     let presets = session.presets.clone();
 
     let result = screenit_ui_egui::run(session, move |waker: Waker| {

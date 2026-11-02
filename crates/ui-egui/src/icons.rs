@@ -45,6 +45,7 @@ pub enum Icon {
     Speaker,
     Cursor,
     Folder,
+    Gear,
 }
 
 pub fn paint(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
@@ -305,6 +306,21 @@ pub fn paint(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
                 (0.06, 0.86),
             ]);
             line(&[(0.06, 0.42), (0.94, 0.42)]);
+        }
+        Icon::Gear => {
+            p.circle_stroke(at(0.5, 0.5), s * 0.2, st);
+            p.circle_stroke(at(0.5, 0.5), s * 0.34, st);
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let (sn, cs) = a.sin_cos();
+                p.line_segment(
+                    [
+                        at(0.5 + 0.34 * cs, 0.5 + 0.34 * sn),
+                        at(0.5 + 0.46 * cs, 0.5 + 0.46 * sn),
+                    ],
+                    st,
+                );
+            }
         }
         Icon::Record => {
             p.circle_stroke(at(0.5, 0.5), s * 0.42, st);

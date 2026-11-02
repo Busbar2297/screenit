@@ -22,6 +22,7 @@ mod library_cmds;
 pub mod mcp;
 mod ml_cmds;
 mod record_cmds;
+pub mod settings;
 mod system_cmds;
 mod video_cmds;
 
@@ -156,6 +157,10 @@ pub struct Session {
     pub library: Library,
     pub presets: Vec<Preset>,
     pub prefs: Prefs,
+    pub settings: settings::Settings,
+    pub settings_path: Option<PathBuf>,
+    /// Where captures go when the `save_dir` setting is empty.
+    pub default_save_dir: Option<PathBuf>,
     pub last_region: Option<Rect>,
     pub scroll_frames: Option<(Rect, Vec<Raster>)>,
     pub recording: Option<ActiveRecording>,
@@ -207,6 +212,9 @@ impl Session {
             library: Library::in_memory(),
             presets: screenit_capture::default_presets(),
             prefs: Prefs::default(),
+            settings: settings::Settings::default(),
+            settings_path: None,
+            default_save_dir: None,
             last_region: None,
             scroll_frames: None,
             recording: None,

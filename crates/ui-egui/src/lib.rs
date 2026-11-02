@@ -7,6 +7,7 @@ mod icons;
 mod library_panel;
 mod overlay;
 mod recording;
+mod settings_panel;
 mod theme;
 
 use icons::Icon;
@@ -103,9 +104,10 @@ pub(crate) enum View {
     Compact,
     Editor,
     Library,
+    Settings,
 }
 
-const COMPACT_SIZE: [f32; 2] = [712.0, 252.0];
+const COMPACT_SIZE: [f32; 2] = [812.0, 252.0];
 const EDITOR_SIZE: [f32; 2] = [1280.0, 820.0];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -157,6 +159,7 @@ pub struct UiApp {
     /// The dark title bar has been applied to the native window.
     framed: bool,
     quit: bool,
+    pub(crate) settings_tab: settings_panel::Tab,
 }
 
 impl UiApp {
@@ -191,6 +194,7 @@ impl UiApp {
             last_saved: None,
             framed: false,
             quit: false,
+            settings_tab: settings_panel::Tab::General,
         }
     }
 
@@ -233,6 +237,8 @@ impl UiApp {
         self.view = view;
         let [w, h] = if view == View::Compact {
             COMPACT_SIZE
+        } else if view == View::Settings {
+            [960.0, 660.0]
         } else {
             EDITOR_SIZE
         };
@@ -531,6 +537,17 @@ impl eframe::App for UiApp {
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::BG, 14))
                     .show(ui, |ui| self.capture_bar(ui, &ctx));
+            }
+            View::Settings => {
+                egui::Panel::top("topbar")
+                    .frame(bar(theme::SURFACE))
+                    .show(ui, |ui| self.top_bar(ui, &ctx));
+                egui::Panel::bottom("status")
+                    .frame(theme::panel_frame(theme::SURFACE, 4))
+                    .show(ui, |ui| self.status_bar(ui));
+                egui::CentralPanel::default()
+                    .frame(theme::panel_frame(theme::BG, 0))
+                    .show(ui, |ui| self.settings_view(ui));
             }
             View::Library => {
                 egui::Panel::top("topbar")

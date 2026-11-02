@@ -123,6 +123,9 @@ impl UiApp {
             if theme::tile(ui, Icon::Library, "Library", "By day", ts, true).clicked() {
                 self.enter_view(ctx, View::Library);
             }
+            if theme::tile(ui, Icon::Gear, "Settings", "Preferences", ts, true).clicked() {
+                self.open_settings(ctx);
+            }
             let has_doc = self.session.doc.is_some();
             if theme::tile(ui, Icon::Editor, "Editor", "Last capture", ts, has_doc).clicked() {
                 self.enter_view(ctx, View::Editor);
@@ -196,6 +199,17 @@ impl UiApp {
                 .clicked()
             {
                 self.view = View::Editor;
+            }
+            if theme::icon_button(
+                ui,
+                Icon::Gear,
+                "Settings",
+                self.view == View::Settings,
+                32.0,
+            )
+            .clicked()
+            {
+                self.open_settings(ctx);
             }
             if theme::pill(ui, Icon::Compact, "Capture bar", false)
                 .on_hover_text("Back to the small capture bar (Ctrl+Shift+B)")
