@@ -237,13 +237,23 @@ pub fn pill_enabled(
         } else {
             TEXT
         };
-        let ir = Rect::from_center_size(
-            Pos2::new(rect.min.x + 12.0 + icon_w / 2.0, rect.center().y),
-            Vec2::splat(icon_w),
-        );
+        // Shaped Arabic is stored in visual order. The icon sits at the start of the label:
+        // the left in LTR, the right in RTL, with the text growing away from it.
+        let rtl = screenit_i18n::is_rtl();
+        let icon_cx = if rtl {
+            rect.max.x - 12.0 - icon_w / 2.0
+        } else {
+            rect.min.x + 12.0 + icon_w / 2.0
+        };
+        let ir = Rect::from_center_size(Pos2::new(icon_cx, rect.center().y), Vec2::splat(icon_w));
         icons::paint(p, icon, ir, fg);
+        let text_x = if rtl {
+            ir.min.x - 8.0 - galley.size().x
+        } else {
+            ir.max.x + 8.0
+        };
         p.galley(
-            Pos2::new(ir.max.x + 8.0, rect.center().y - galley.size().y / 2.0),
+            Pos2::new(text_x, rect.center().y - galley.size().y / 2.0),
             galley,
             fg,
         );

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Arabic now reads right to left everywhere: letters join, Latin words such as "Print Screen" stay in order, and the capture button, status line, buttons, drop-downs, sidebar, library cards and the notification are anchored on the right.
+- Fixed the root cause: the text renderer reverses whole right-to-left lines, which scrambled text that had already been put in display order.
+- README: new screenshots and a language section.
+
 ## 0.2.1
 
 - Grab text from the open image or from a screen area. The text is copied to the clipboard, saved in the library, and a notification shows the result.

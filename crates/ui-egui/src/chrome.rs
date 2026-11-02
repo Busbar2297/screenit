@@ -31,7 +31,7 @@ const SWATCHES: [Color32; 10] = [
 impl UiApp {
     /// Snagit-style launcher: one big gradient Capture button plus quick-action tiles.
     pub(crate) fn capture_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::hover());
             theme::brand_mark(ui.painter(), r);
             ui.label(
@@ -67,32 +67,45 @@ impl UiApp {
                 .as_shape(rect, 14),
             );
             theme::gradient_rect(p, rect, 14.0, a, b);
+            let rtl = screenit_i18n::is_rtl();
+            let (icon_at, text_at, text_align, key_at) = if rtl {
+                (
+                    rect.right_center() + Vec2::new(-40.0, -8.0),
+                    rect.right_center() + Vec2::new(-74.0, 0.0),
+                    egui::Align2::RIGHT_CENTER,
+                    rect.left_bottom() + Vec2::new(30.0, -16.0),
+                )
+            } else {
+                (
+                    rect.left_center() + Vec2::new(40.0, -8.0),
+                    rect.left_center() + Vec2::new(74.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    rect.right_bottom() + Vec2::new(-30.0, -16.0),
+                )
+            };
             crate::icons::paint(
                 p,
                 Icon::Capture,
-                Rect::from_center_size(
-                    rect.left_center() + Vec2::new(40.0, -8.0),
-                    Vec2::splat(34.0),
-                ),
+                Rect::from_center_size(icon_at, Vec2::splat(34.0)),
                 Color32::WHITE,
             );
             p.text(
-                rect.left_center() + Vec2::new(74.0, -12.0),
-                egui::Align2::LEFT_CENTER,
+                text_at + Vec2::new(0.0, -12.0),
+                text_align,
                 t("bar.capture"),
                 egui::FontId::proportional(22.0),
                 Color32::WHITE,
             );
             p.text(
-                rect.left_center() + Vec2::new(75.0, 12.0),
-                egui::Align2::LEFT_CENTER,
+                text_at + Vec2::new(if rtl { -1.0 } else { 1.0 }, 12.0),
+                text_align,
                 t("bar.capture.sub"),
                 egui::FontId::proportional(11.5),
                 Color32::from_white_alpha(200),
             );
             theme::keycap(
                 p,
-                rect.right_bottom() + Vec2::new(-30.0, -16.0),
+                key_at,
                 "PrtSc",
                 Color32::WHITE,
                 Color32::from_black_alpha(70),
@@ -195,7 +208,7 @@ impl UiApp {
             }
         });
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             ui.label(egui::RichText::new(t("bar.video")).size(11.5).color(MUTED));
             ui.add_space(2.0);
             self.record_options(ui);
@@ -205,7 +218,7 @@ impl UiApp {
     }
 
     fn status_line(&self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
             ui.painter().circle_filled(r.center(), 3.5, OK);
             ui.label(egui::RichText::new(&self.status).size(11.5).color(MUTED));
@@ -507,12 +520,12 @@ impl UiApp {
 
     /// Bottom status bar: message on the left, image size on the right.
     pub(crate) fn status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
             ui.painter().circle_filled(r.center(), 3.5, OK);
             ui.label(egui::RichText::new(&self.status).size(12.0).color(MUTED));
             self.reveal_link(ui);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(crate::far_layout(), |ui| {
                 if let Some(t) = &self.tex {
                     let [w, h] = t.size();
                     ui.label(

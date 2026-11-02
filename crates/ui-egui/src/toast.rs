@@ -59,20 +59,22 @@ pub fn drive(app: &mut UiApp, ctx: &egui::Context) {
             .corner_radius(12)
             .inner_margin(14)
             .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(&notice.title)
-                        .size(14.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                );
-                if !notice.detail.is_empty() {
+                ui.with_layout(crate::column_layout(), |ui| {
                     ui.label(
-                        egui::RichText::new(&notice.detail)
-                            .size(12.5)
-                            .color(Color32::from_rgb(180, 186, 204)),
+                        egui::RichText::new(&notice.title)
+                            .size(14.0)
+                            .strong()
+                            .color(Color32::WHITE),
                     );
-                }
-                dismiss = ui.button(screenit_i18n::t("toast.dismiss")).clicked();
+                    if !notice.detail.is_empty() {
+                        ui.label(
+                            egui::RichText::new(&notice.detail)
+                                .size(12.5)
+                                .color(Color32::from_rgb(180, 186, 204)),
+                        );
+                    }
+                    dismiss = ui.button(screenit_i18n::t("toast.dismiss")).clicked();
+                });
             });
     });
     if dismiss {

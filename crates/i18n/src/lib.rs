@@ -137,9 +137,83 @@ fn is_rtl_char(c: char) -> bool {
     matches!(c as u32, 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF)
 }
 
-/// Shape and reorder `text` for a left-to-right text renderer. Text without right-to-left
-/// characters is returned unchanged.
+/// Text ready to hand to egui. Text without right-to-left characters is returned unchanged.
+///
+/// epaint shapes with HarfBuzz, which reverses every run whose first strong character is
+/// right-to-left but does no paragraph-level bidi. So the visual order from [`visual`] is
+/// adjusted to survive that reversal; see [`for_shaper`].
 pub fn display(text: &str) -> String {
+    if !text.chars().any(is_rtl_char) {
+        return text.to_string();
+    }
+    for_shaper(&visual(text), single_face())
+}
+
+/// The Arabic UI puts one font first for every character (`ui-egui/src/fonts.rs`), so a whole
+/// line is a single shaping run. Other locales draw Arabic from a fallback font, so each
+/// unbroken stretch of Arabic is its own run.
+fn single_face() -> bool {
+    locale()
+        .split('-')
+        .next()
+        .is_some_and(|c| c.eq_ignore_ascii_case("ar"))
+}
+
+/// Whether the shaper would pick right-to-left for `chars`: the first letter decides.
+fn first_strong_is_rtl(mut chars: impl Iterator<Item = char>) -> bool {
+    chars
+        .find(|&c| is_rtl_char(c) || c.is_alphabetic())
+        .is_some_and(is_rtl_char)
+}
+
+fn mirror(c: char) -> char {
+    match c {
+        '(' => ')',
+        ')' => '(',
+        '[' => ']',
+        ']' => '[',
+        '{' => '}',
+        '}' => '{',
+        '<' => '>',
+        '>' => '<',
+        other => other,
+    }
+}
+
+/// Undo the reversal epaint's shaper is about to apply to `visual` (left-to-right glyph order),
+/// so the pixels come out as `visual`.
+///
+/// * One run (`single_face`): the shaper guesses the direction from the first letter and, when
+///   that is right-to-left, reverses the whole line. Handing over the reversed line makes the
+///   shaper see a right-to-left first letter exactly when the visual line both starts and
+///   ends with one, and puts the pixels back. Brackets are swapped because HarfBuzz mirrors
+///   them in right-to-left runs. A line that starts with a left-to-right letter is not
+///   reversed by the shaper, so it is handed over as is.
+/// * Separate runs: each unbroken stretch of right-to-left characters is reversed on its own.
+pub fn for_shaper(visual: &str, single_face: bool) -> String {
+    if single_face {
+        if first_strong_is_rtl(visual.chars()) && first_strong_is_rtl(visual.chars().rev()) {
+            return visual.chars().rev().map(mirror).collect();
+        }
+        return visual.to_string();
+    }
+    let mut out = String::with_capacity(visual.len());
+    let mut run: Vec<char> = Vec::new();
+    for c in visual.chars() {
+        if is_rtl_char(c) {
+            run.push(c);
+        } else {
+            out.extend(run.drain(..).rev());
+            out.push(c);
+        }
+    }
+    out.extend(run.drain(..).rev());
+    out
+}
+
+/// Shape and reorder `text` into left-to-right glyph order (what a renderer without bidi
+/// would need). Text without right-to-left characters is returned unchanged.
+pub fn visual(text: &str) -> String {
     if !text.chars().any(is_rtl_char) {
         return text.to_string();
     }
@@ -429,23 +503,72 @@ mod tests {
 
     #[test]
     fn rtl_text_is_shaped_and_reordered_but_latin_is_untouched() {
-        assert_eq!(display("Capture 1920"), "Capture 1920");
+        assert_eq!(visual("Capture 1920"), "Capture 1920");
         let logical = "\u{645}\u{631}\u{62D}\u{628}\u{627}"; // مرحبا
-        let shown = display(logical);
+        let shown = visual(logical);
         assert_ne!(shown, logical);
         assert!(shown.chars().all(is_rtl_char), "presentation forms");
         // Visual order of an isolated word is the reverse of its logical order.
         assert_eq!(shown.chars().count(), 5);
         // Visual order: the last logical letter (alef, final form) is drawn first.
         assert_eq!(shown.chars().next(), Some('\u{FE8E}'));
-        let status = display("\u{062C}\u{0627}\u{0647}\u{0632}. \u{0627}\u{0636}\u{063A}\u{0637} Print Screen \u{0644}\u{0644}\u{0627}\u{0644}\u{062A}\u{0642}\u{0627}\u{0637}.");
+        let status = visual(
+            "\u{062C}\u{0627}\u{0647}\u{0632}. \u{0627}\u{0636}\u{063A}\u{0637} Print Screen \u{0644}\u{0644}\u{0627}\u{0644}\u{062A}\u{0642}\u{0627}\u{0637}.",
+        );
         assert!(
             status.contains("Print Screen"),
             "latin run reversed: {status}"
         );
         // Numbers inside RTL text stay readable left to right.
-        let mixed = display("\u{645}\u{631}\u{62D}\u{628}\u{627} 1920");
+        let mixed = visual("\u{645}\u{631}\u{62D}\u{628}\u{627} 1920");
         assert!(mixed.starts_with("1920"));
+    }
+
+    /// What epaint's HarfBuzz pass does to a run whose first strong character is RTL.
+    fn harfbuzz_reverses(run: &str) -> String {
+        if first_strong_is_rtl(run.chars()) {
+            run.chars().rev().map(mirror).collect()
+        } else {
+            run.to_string()
+        }
+    }
+
+    #[test]
+    fn shaper_pass_leaves_latin_in_order_in_one_run() {
+        let status = visual(
+            "\u{062C}\u{0627}\u{0647}\u{0632}. \u{0627}\u{0636}\u{063A}\u{0637} Print Screen \u{0644}\u{0644}\u{0627}\u{0644}\u{062A}\u{0642}\u{0627}\u{0637}.",
+        );
+        let fed = for_shaper(&status, true);
+        // Regression: the line used to come out as "neercS tnirP".
+        assert!(!fed.contains("Print Screen"), "fed reversed: {fed}");
+        assert_eq!(harfbuzz_reverses(&fed), status);
+        assert!(harfbuzz_reverses(&fed).contains("Print Screen"));
+    }
+
+    #[test]
+    fn shaper_pass_handles_latin_first_and_brackets() {
+        // First strong character is Latin: the shaper does not reverse, so nothing changes.
+        let latin_first = visual("screenIt \u{645}\u{631}\u{62D}\u{628}\u{627}");
+        assert_eq!(for_shaper(&latin_first, true), latin_first);
+        let with_brackets = "\u{FE8E}\u{FEE1} (\u{FE8E}) 12";
+        let fed = for_shaper(with_brackets, true);
+        assert_eq!(harfbuzz_reverses(&fed), with_brackets);
+    }
+
+    #[test]
+    fn shaper_pass_reverses_each_arabic_run_in_fallback_font_mode() {
+        let word = visual("\u{645}\u{631}\u{62D}\u{628}\u{627}");
+        let line = format!("Hello {word} 42");
+        let fed = for_shaper(&line, false);
+        assert!(fed.starts_with("Hello "));
+        assert!(fed.ends_with(" 42"));
+        // Each run reversed by the shaper again gives the visual line back.
+        let back: String = fed
+            .split(' ')
+            .map(harfbuzz_reverses)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(back, line);
     }
 
     #[test]

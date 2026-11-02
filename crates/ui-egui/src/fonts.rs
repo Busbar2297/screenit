@@ -8,7 +8,8 @@ fn candidates(code: &str) -> &'static [&'static str] {
     match code.split('-').next().unwrap_or(code) {
         // Tahoma and Arial contain the Arabic presentation forms the shaper emits. Segoe UI
         // relies on OpenType shaping, which this renderer does not do, so it is not used.
-        "ar" => &["tahoma.ttf", "arial.ttf", "trad.ttf"],
+        // Simplified Arabic was tried: several of its presentation forms are empty boxes.
+        "ar" => &["tahoma.ttf", "arial.ttf"],
         "ja" => &["YuGothM.ttc", "meiryo.ttc", "msgothic.ttc"],
         "zh" => &["msyh.ttc", "msyh.ttf", "simsun.ttc"],
         // Kept as a fallback so Arabic text (a toast, a grab) still draws in other languages.

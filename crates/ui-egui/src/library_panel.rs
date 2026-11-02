@@ -342,13 +342,26 @@ impl UiApp {
                 .as_str()
                 .unwrap_or(e["title"].as_str().unwrap_or(""));
             let shown = screenit_i18n::display(body);
-            let galley = p.layout(
-                shown,
-                egui::FontId::proportional(13.0),
-                theme::TEXT,
-                thumb.width() - 16.0,
-            );
-            p.galley(thumb.min + egui::vec2(8.0, 8.0), galley, theme::TEXT);
+            let width = thumb.width() - 16.0;
+            let rtl = screenit_i18n::is_rtl();
+            let galley = if rtl {
+                let mut job = egui::text::LayoutJob::simple(
+                    shown,
+                    egui::FontId::proportional(13.0),
+                    theme::TEXT,
+                    width,
+                );
+                job.halign = egui::Align::RIGHT;
+                p.layout_job(job)
+            } else {
+                p.layout(shown, egui::FontId::proportional(13.0), theme::TEXT, width)
+            };
+            let origin = if rtl {
+                egui::pos2(thumb.max.x - 8.0, thumb.min.y + 8.0)
+            } else {
+                thumb.min + egui::vec2(8.0, 8.0)
+            };
+            p.galley(origin, galley, theme::TEXT);
         } else if e["kind"].as_str() == Some("video") {
             let c = thumb.center();
             p.circle_filled(c, 20.0, egui::Color32::from_black_alpha(150));
@@ -366,17 +379,23 @@ impl UiApp {
         } else {
             title.to_owned()
         };
+        let rtl = screenit_i18n::is_rtl();
+        let (x, align) = if rtl {
+            (rect.max.x - 12.0, egui::Align2::RIGHT_CENTER)
+        } else {
+            (rect.min.x + 12.0, egui::Align2::LEFT_CENTER)
+        };
         p.text(
-            egui::pos2(rect.min.x + 12.0, thumb.max.y + 14.0),
-            egui::Align2::LEFT_CENTER,
+            egui::pos2(x, thumb.max.y + 14.0),
+            align,
             time,
             egui::FontId::proportional(13.5),
             theme::TEXT,
         );
         p.text(
-            egui::pos2(rect.min.x + 12.0, thumb.max.y + 32.0),
-            egui::Align2::LEFT_CENTER,
-            short,
+            egui::pos2(x, thumb.max.y + 32.0),
+            align,
+            screenit_i18n::display(&short),
             egui::FontId::proportional(11.5),
             theme::MUTED,
         );

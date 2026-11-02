@@ -100,3 +100,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Enabled the egui clipboard feature and added Paste buttons; Ctrl+V was a no-op because clipboard support was compiled out.
 - Arabic UI uses Tahoma/Arial as the primary font so presentation forms draw. Latin inside Arabic strings stays in order.
 - Still open: translate the newest keys; the API key is plain text in settings.json.
+
+## 2026-11-02 - Arabic reads from the right
+- Root cause: epaint 0.37 shapes with harfrust and reverses a whole run whose first letter is RTL (no paragraph bidi). Tahoma covers every character, so a line is one run and our visual-order string was reversed again ("neercS tnirP"). `i18n::display` now = `visual` (shape + bidi) then `for_shaper`, which pre-reverses the line (brackets swapped) so the pixels match; fallback-font locales reverse each Arabic run instead. Tests model the shaper.
+- Status text, pills, capture button, combos, sidebar and toast now anchor on the right in Arabic.
+- Simplified Arabic was tried as primary font: several presentation forms are empty boxes. Tahoma stays.
+- Still open: a visual line that starts RTL but ends with a Latin letter would still be reversed; no such string ships.

@@ -16,18 +16,32 @@ pub(crate) enum Tab {
 }
 
 fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[(String, String)]) {
+    use eframe::egui::AtomExt as _;
     let shown = options
         .iter()
         .find(|(v, _)| v == value)
         .map(|(_, l)| l.as_str())
         .unwrap_or("?");
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(shown)
-        .show_ui(ui, |ui| {
+    // The closed combo paints its text from the left. Grow the label and pin it to the
+    // right edge so a visual-order Arabic string starts beside the arrow.
+    let mut combo = egui::ComboBox::from_id_salt(id);
+    combo = if screenit_i18n::is_rtl() {
+        combo.selected_text(shown.atom_grow(true).atom_align(egui::Align2::RIGHT_CENTER))
+    } else {
+        combo.selected_text(shown)
+    };
+    combo.show_ui(ui, |ui| {
+        let mut fill = |ui: &mut egui::Ui| {
             for (v, label) in options {
                 ui.selectable_value(value, v.clone(), label);
             }
-        });
+        };
+        if screenit_i18n::is_rtl() {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Max), fill);
+        } else {
+            fill(ui);
+        }
+    });
 }
 
 /// One line from the clipboard, or nothing when it is empty or not text.
@@ -69,15 +83,17 @@ impl UiApp {
             .exact_size(170.0)
             .resizable(false)
             .show(ui, |ui| {
-                for (tb, key) in [
-                    (Tab::General, "settings.cat.general"),
-                    (Tab::Recording, "settings.cat.recording"),
-                    (Tab::Ocr, "settings.cat.ocr"),
-                ] {
-                    if ui.selectable_label(tab == tb, t(key)).clicked() {
-                        tab = tb;
+                ui.with_layout(crate::column_layout(), |ui| {
+                    for (tb, key) in [
+                        (Tab::General, "settings.cat.general"),
+                        (Tab::Recording, "settings.cat.recording"),
+                        (Tab::Ocr, "settings.cat.ocr"),
+                    ] {
+                        if ui.selectable_label(tab == tb, t(key)).clicked() {
+                            tab = tb;
+                        }
                     }
-                }
+                });
             });
         self.settings_tab = tab;
 
