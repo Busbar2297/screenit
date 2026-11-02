@@ -811,3 +811,12 @@ tier = 2
 status = "done"
 commands = ["settings.set"]
 tests = ["tests::every_bundled_locale_is_complete", "tests::rtl_text_is_shaped_and_reordered_but_latin_is_untouched"]
+
+[[row]]
+id = "rec.4k"
+group = "Recording"
+title = "2K/4K recording: DXGI desktop duplication, output-size presets (native/1080p/1440p/2160p), H.264 level 5.x, up to 100 Mbit/s"
+tier = 2
+status = "done"
+commands = ["record.start"]
+tests = ["commands::recording_output_size_param_and_setting", "mf::tests::encodes_and_decodes_3840x2160_without_shear"]

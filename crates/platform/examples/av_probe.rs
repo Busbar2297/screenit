@@ -65,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window: None,
         fps: 30,
         codec: Codec::H264,
+        size: screenit_record::OutputSize::Native,
         mic: (!has("nomic")).then(|| "default".to_string()),
         system_audio: has("system"),
         cursor_highlight: true,

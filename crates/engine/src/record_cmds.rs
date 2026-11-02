@@ -5,7 +5,7 @@ use crate::args::Args;
 use crate::{ActiveRecording, CmdResult, CommandError, CommandSpec, Session, always};
 use screenit_geom::Rect;
 use screenit_record::{
-    Codec, Corner, PipLayout, PipShape, RecState, RecordConfig, Session as RecSession,
+    Codec, Corner, OutputSize, PipLayout, PipShape, RecState, RecordConfig, Session as RecSession,
 };
 use serde_json::{Value, json};
 
@@ -19,6 +19,7 @@ fn start(s: &mut Session, p: &Value) -> CmdResult {
             "h",
             "fps",
             "codec",
+            "size",
             "mic",
             "system_audio",
             "cursor_highlight",
@@ -51,11 +52,20 @@ fn start(s: &mut Session, p: &Value) -> CmdResult {
             )));
         }
     };
+    let size_name = a
+        .opt_str("size")?
+        .unwrap_or(s.settings.recording.output.as_str());
+    let size = OutputSize::parse(size_name).ok_or_else(|| {
+        CommandError::Params(format!(
+            "unknown size `{size_name}` (native|1080p|1440p|2160p)"
+        ))
+    })?;
     let cfg = RecordConfig {
         region: Rect::new(a.i32("x")?, a.i32("y")?, a.u32("w")?, a.u32("h")?),
         window: None,
         fps: a.opt_u32("fps")?.unwrap_or(30),
         codec,
+        size,
         mic: a.opt_str("mic")?.map(str::to_string),
         system_audio: a.bool("system_audio", false)?,
         cursor_highlight: a.bool("cursor_highlight", false)?,
@@ -291,7 +301,7 @@ pub fn specs() -> Vec<CommandSpec> {
         c(
             "record.start",
             "Start Recording",
-            r#"{"x","y","w","h","output":str.mp4,"fps"?:int,"codec"?:h264|h265,"mic"?:str,"system_audio"?:bool,"cursor_highlight"?:bool,"click_ripples"?:bool,"countdown_ms"?:int,"webcam"?:bool,"pip_shape"?:rectangle|rounded|circle,"pip_size"?:5..100,"pip_corner"?:top_left|top_right|bottom_left|bottom_right,"pip_margin"?:int}"#,
+            r#"{"x","y","w","h","output":str.mp4,"fps"?:int,"codec"?:h264|h265,"size"?:native|1080p|1440p|2160p,"mic"?:str,"system_audio"?:bool,"cursor_highlight"?:bool,"click_ripples"?:bool,"countdown_ms"?:int,"webcam"?:bool,"pip_shape"?:rectangle|rounded|circle,"pip_size"?:5..100,"pip_corner"?:top_left|top_right|bottom_left|bottom_right,"pip_margin"?:int}"#,
             start,
         ),
         c("record.pause", "Pause", "{}", pause),

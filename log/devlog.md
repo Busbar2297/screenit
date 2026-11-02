@@ -81,3 +81,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - cargo xtask i18n checks keys used in code exist in en.toml and every locale is complete; package/msi ship the locales folder.
 - Translations are machine-drafted, not natively reviewed.
 - Verified visually via PrintWindow: ar (mirrored), ja, ru.
+
+## 2K/4K recording
+- record: OutputSize (native|1080p|1440p|2160p; longer side 1920/2560/3840, aspect kept, even, <=8192) on RecordConfig.size; record.start param size defaults from settings recording.output. UI start now also passes settings fps/codec.
+- platform/dup.rs: DXGI Desktop Duplication per output (BGRA8 only; rotated/HDR/lost access fall back to GDI after 3 failures). First frame of a static desktop carries no image (LastPresentTime=0), so the staging texture is seeded from one GDI grab. ScreenSource::grab_stream (default = grab) is used by the recorder.
+- mf.rs: hardware MFT first above 1080p with software fallback (retry on sharing violation), H.264 High + level by macroblock rate (4.0..5.2), bitrate 0.125 bpp capped at 100 Mbit/s (H.265 x0.6), threaded bilinear scaler, two-stage pipeline (grab | convert+write), 1 ms timer resolution during recording (default tick capped 30 fps loops near 24).
+- Measured here: 2560x1600 native 57 fps at target 60, 28 at 30 (variable); 3840x2400 scaled 33 fps at target 45. 2560x1440 and 3840x2160 encode/decode tests check bar positions for shear.
+- Examples: dup_probe (GDI vs DXGI ms/frame), rec_probe (record the primary monitor at a size).

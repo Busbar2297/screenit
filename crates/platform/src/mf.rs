@@ -8,8 +8,8 @@ use screenit_geom::{Point, Rect};
 use screenit_raster::Raster;
 use screenit_record::audio::{AudioChunk, AudioMixer, CHANNELS, RATE};
 use screenit_record::{
-    CameraSource, Codec, PipLayout, RecordConfig, RecordError, Recorder, RecordingResult,
-    VideoInfo, VideoReader, VideoWriter, composite_webcam, draw_cursor_effects,
+    CameraSource, Codec, OutputSize, PipLayout, RecordConfig, RecordError, Recorder,
+    RecordingResult, VideoInfo, VideoReader, VideoWriter, composite_webcam, draw_cursor_effects,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,14 +21,14 @@ use windows::Win32::Media::MediaFoundation::{
     MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT,
     MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE,
     MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
-    MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
-    MF_PD_DURATION, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-    MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
-    MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_VERSION, MF2DBuffer_LockFlags_Read, MFAudioFormat_AAC,
-    MFAudioFormat_PCM, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample,
-    MFCreateSinkWriterFromURL, MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video,
-    MFSTARTUP_FULL, MFStartup, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
-    MFVideoInterlace_Progressive,
+    MF_MT_MAJOR_TYPE, MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_MPEG2_LEVEL, MF_MT_MPEG2_PROFILE,
+    MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_PD_DURATION,
+    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING,
+    MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_VERSION,
+    MF2DBuffer_LockFlags_Read, MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateAttributes,
+    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL,
+    MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video, MFSTARTUP_FULL, MFStartup,
+    MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
 };
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 use windows::core::{GUID, Interface, PCWSTR};
@@ -57,6 +57,32 @@ fn set_size(t: &IMFMediaType, key: &GUID, a: u32, b: u32) -> windows::core::Resu
     // SAFETY: MF packs two u32 into one u64 attribute (MFSetAttributeSize/Ratio).
     unsafe { t.SetUINT64(key, (u64::from(a) << 32) | u64::from(b)) }
 }
+
+/// Raises the system timer resolution to 1 ms while alive so frame pacing sleeps are accurate
+/// (the default 15.6 ms tick makes a 30 fps loop drift to ~24 fps).
+struct FineTimer;
+
+impl FineTimer {
+    fn start() -> Self {
+        // SAFETY: plain winmm call, undone by 	imeEndPeriod in Drop.
+        unsafe { windows::Win32::Media::timeBeginPeriod(1) };
+        Self
+    }
+}
+
+impl Drop for FineTimer {
+    fn drop(&mut self) {
+        // SAFETY: matches the 	imeBeginPeriod(1) in start.
+        unsafe { windows::Win32::Media::timeEndPeriod(1) };
+    }
+}
+
+/// The sink writer is free-threaded: the video thread writes stream 0 while the capture thread
+/// writes the audio stream and finalises only after the video thread has been joined.
+struct SharedWriter(IMFSinkWriter);
+
+// SAFETY: see above; MF sink writers serialise calls internally and are not thread-affine.
+unsafe impl Send for SharedWriter {}
 
 type Webcam = Option<(Arc<dyn CameraSource>, Arc<Mutex<PipLayout>>)>;
 
@@ -211,11 +237,76 @@ impl Audio {
     }
 }
 
+/// `eAVEncH264VProfile_High`.
+const H264_PROFILE_HIGH: u32 = 100;
+
+/// Average bitrate: 0.125 bits per pixel per frame (H.265 needs about 60% of that), clamped to
+/// 0.5..=100 Mbit/s so 4K60 stays within what the encoders and MP4 players accept.
+fn bitrate_for(w: u32, h: u32, fps: u32, codec: Codec) -> u32 {
+    let bits = u64::from(w) * u64::from(h) * u64::from(fps) / 8;
+    let bits = if codec == Codec::H265 {
+        bits * 3 / 5
+    } else {
+        bits
+    };
+    bits.clamp(500_000, 100_000_000) as u32
+}
+
+/// Smallest H.264 level (`eAVEncH264VLevel*`, level × 10) that covers the frame size and the
+/// macroblock rate: 4.0 for 1080p30 up to 5.2 for 4K60.
+fn h264_level(w: u32, h: u32, fps: u32) -> u32 {
+    let mbs = u64::from(w.div_ceil(16)) * u64::from(h.div_ceil(16));
+    let rate = mbs * u64::from(fps);
+    // (level, max frame macroblocks, max macroblocks per second)
+    const LEVELS: [(u32, u64, u64); 6] = [
+        (40, 8_192, 245_760),
+        (42, 8_704, 522_240),
+        (50, 22_080, 589_824),
+        (51, 36_864, 983_040),
+        (52, 36_864, 2_073_600),
+        (62, 139_264, 16_711_680),
+    ];
+    LEVELS
+        .iter()
+        .find(|(_, frame, per_s)| mbs <= *frame && rate <= *per_s)
+        .map_or(62, |l| l.0)
+}
+
+/// Writer for the frame size. Above 1080p the software encoder struggles to keep up, so a
+/// hardware encoder is tried first; any failure falls back to the software encoder.
+fn open_writer(
+    cfg: &RecordConfig,
+    w: u32,
+    h: u32,
+    audio: bool,
+) -> Result<(IMFSinkWriter, Option<u32>), RecordError> {
+    if u64::from(w) * u64::from(h) > 1920 * 1088 {
+        match make_writer(cfg, w, h, audio, true) {
+            Ok(v) => return Ok(v),
+            Err(e) => eprintln!("hardware encoder unavailable ({e}); using software"),
+        }
+    }
+    // A failed hardware attempt can hold the output file for a moment: retry a few times.
+    let mut last = err("no attempt");
+    for _ in 0..10 {
+        match make_writer(cfg, w, h, audio, false) {
+            Ok(v) => return Ok(v),
+            Err(e) if e.to_string().contains("0x80070020") => {
+                last = e;
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
 fn make_writer(
     cfg: &RecordConfig,
     w: u32,
     h: u32,
     audio: bool,
+    hardware: bool,
 ) -> Result<(IMFSinkWriter, Option<u32>), RecordError> {
     // SAFETY: straightforward MF calls; every COM object is reference-counted by the wrappers.
     unsafe {
@@ -223,7 +314,10 @@ fn make_writer(
         MFCreateAttributes(&mut attrs, 2).map_err(err)?;
         let attrs = attrs.ok_or_else(|| err("no attributes"))?;
         attrs
-            .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 0)
+            .SetUINT32(
+                &MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+                u32::from(hardware),
+            )
             .map_err(err)?;
         let path = wide(&cfg.output);
         let writer = MFCreateSinkWriterFromURL(PCWSTR(path.as_ptr()), None, &attrs).map_err(err)?;
@@ -236,9 +330,14 @@ fn make_writer(
             Codec::H265 => MFVideoFormat_HEVC,
         };
         out.SetGUID(&MF_MT_SUBTYPE, &codec).map_err(err)?;
-        let bitrate = ((w as u64 * h as u64 * u64::from(cfg.fps)) / 8).clamp(500_000, 40_000_000);
-        out.SetUINT32(&MF_MT_AVG_BITRATE, bitrate as u32)
+        out.SetUINT32(&MF_MT_AVG_BITRATE, bitrate_for(w, h, cfg.fps, cfg.codec))
             .map_err(err)?;
+        if cfg.codec == Codec::H264 {
+            out.SetUINT32(&MF_MT_MPEG2_PROFILE, H264_PROFILE_HIGH)
+                .map_err(err)?;
+            out.SetUINT32(&MF_MT_MPEG2_LEVEL, h264_level(w, h, cfg.fps))
+                .map_err(err)?;
+        }
         out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
             .map_err(err)?;
         set_size(&out, &MF_MT_FRAME_SIZE, w, h).map_err(err)?;
@@ -274,8 +373,71 @@ fn make_writer(
     }
 }
 
+/// Bilinear-scale an RGBA frame into BGRA bytes of `dw`×`dh` (alpha forced opaque). Rows are
+/// split across threads so a 4K output stays within a frame interval.
+fn scale_to_bgra(frame: &Raster, dst: &mut [u8], dw: usize, dh: usize) {
+    let (sw, sh) = (frame.width() as usize, frame.height() as usize);
+    let src = frame.data();
+    if sw == 0
+        || sh == 0
+        || dw == 0
+        || dh == 0
+        || dst.len() < dw * dh * 4
+        || src.len() < sw * sh * 4
+    {
+        return;
+    }
+    // Per output column: left/right source columns and the right weight (0..=256).
+    let axis = |dn: usize, sn: usize| -> Vec<(usize, usize, u32)> {
+        (0..dn)
+            .map(|i| {
+                let f =
+                    ((i as f64 + 0.5) * sn as f64 / dn as f64 - 0.5).clamp(0.0, (sn - 1) as f64);
+                let a = f.floor() as usize;
+                let b = (a + 1).min(sn - 1);
+                (a, b, ((f - a as f64) * 256.0) as u32)
+            })
+            .collect()
+    };
+    let (xs, ys) = (axis(dw, sw), axis(dh, sh));
+    let band = dh.div_ceil(4).max(1);
+    std::thread::scope(|scope| {
+        for (bi, rows) in dst[..dw * dh * 4].chunks_mut(band * dw * 4).enumerate() {
+            let (xs, ys) = (&xs, &ys);
+            scope.spawn(move || {
+                for (ri, row) in rows.chunks_exact_mut(dw * 4).enumerate() {
+                    let (y0, y1, wy) = ys[bi * band + ri];
+                    let (r0, r1) = (&src[y0 * sw * 4..], &src[y1 * sw * 4..]);
+                    for (px, &(x0, x1, wx)) in row.chunks_exact_mut(4).zip(xs.iter()) {
+                        let mix = |c: usize| {
+                            let top = u32::from(r0[x0 * 4 + c]) * (256 - wx)
+                                + u32::from(r0[x1 * 4 + c]) * wx;
+                            let bot = u32::from(r1[x0 * 4 + c]) * (256 - wx)
+                                + u32::from(r1[x1 * 4 + c]) * wx;
+                            ((top * (256 - wy) + bot * wy) >> 16) as u8
+                        };
+                        px.copy_from_slice(&[mix(2), mix(1), mix(0), 255]);
+                    }
+                }
+            });
+        }
+    });
+}
+
 fn make_sample(frame: &Raster, ts_100ns: i64, dur_100ns: i64) -> Result<IMFSample, RecordError> {
-    let (w, h) = (frame.width() as usize, frame.height() as usize);
+    make_sample_sized(frame, frame.width(), frame.height(), ts_100ns, dur_100ns)
+}
+
+/// Sample of `w`×`h` BGRA pixels; the frame is scaled when its size differs.
+fn make_sample_sized(
+    frame: &Raster,
+    w: u32,
+    h: u32,
+    ts_100ns: i64,
+    dur_100ns: i64,
+) -> Result<IMFSample, RecordError> {
+    let scaled = frame.width() != w || frame.height() != h;
+    let (w, h) = (w as usize, h as usize);
     let len = w * h * 4;
     // SAFETY: the memory buffer is locked for the duration of the copy and sized exactly `len`.
     unsafe {
@@ -286,8 +448,12 @@ fn make_sample(frame: &Raster, ts_100ns: i64, dur_100ns: i64) -> Result<IMFSampl
             return Err(err("buffer lock returned null"));
         }
         let dst = std::slice::from_raw_parts_mut(ptr, len);
-        for (dp, sp) in dst.chunks_exact_mut(4).zip(frame.data().chunks_exact(4)) {
-            dp.copy_from_slice(&[sp[2], sp[1], sp[0], 255]);
+        if scaled {
+            scale_to_bgra(frame, dst, w, h);
+        } else {
+            for (dp, sp) in dst.chunks_exact_mut(4).zip(frame.data().chunks_exact(4)) {
+                dp.copy_from_slice(&[sp[2], sp[1], sp[0], 255]);
+            }
         }
         buf.Unlock().map_err(err)?;
         buf.SetCurrentLength(len as u32).map_err(err)?;
@@ -310,7 +476,7 @@ fn run_capture(
         init_mf()?;
         let (w, h) = cfg.encode_size();
         let sources = Audio::open(&cfg)?;
-        let (writer, stream) = make_writer(&cfg, w, h, sources.is_some())?;
+        let (writer, stream) = open_writer(&cfg, w, h, sources.is_some())?;
         let audio = match (sources, stream) {
             (Some(sources), Some(stream)) => Some(Audio {
                 mixer: AudioMixer::new(sources.len()),
@@ -331,6 +497,7 @@ fn run_capture(
             return Err(e);
         }
     };
+    let _timer = FineTimer::start();
     let frame_dt = Duration::from_secs_f64(1.0 / f64::from(cfg.fps));
     let dur_100ns = (10_000_000.0 / f64::from(cfg.fps)) as i64;
     let start = Instant::now();
@@ -338,7 +505,22 @@ fn run_capture(
     let mut paused_since: Option<Instant> = None;
     let mut next = start;
     let mut frames = 0u64;
-    let mut region = Rect::new(cfg.region.x, cfg.region.y, w, h);
+    // Stage two of the pipeline: pixel conversion (and scaling) plus the encoder hand-off.
+    let (tx, rx) = std::sync::mpsc::sync_channel::<(Raster, i64)>(2);
+    let video = {
+        let shared = SharedWriter(writer.clone());
+        std::thread::spawn(move || -> Result<(), RecordError> {
+            let writer = shared;
+            for (frame, ts) in rx {
+                let sample = make_sample_sized(&frame, w, h, ts, dur_100ns)?;
+                // SAFETY: stream 0 exists; the sink writer accepts samples from any thread.
+                unsafe { writer.0.WriteSample(0, &sample).map_err(err)? };
+            }
+            Ok(())
+        })
+    };
+    let (sw, sh) = cfg.source_size();
+    let mut region = Rect::new(cfg.region.x, cfg.region.y, sw, sh);
     let mut ripples: Vec<(Point, u64)> = Vec::new();
     let mut was_down = false;
     if let Some(a) = &mut audio {
@@ -376,14 +558,14 @@ fn run_capture(
         if let Some(id) = cfg.window {
             if let Ok(wins) = screen.windows() {
                 if let Some(win) = wins.iter().find(|x| x.id == id) {
-                    region = Rect::new(win.rect.x, win.rect.y, w, h);
+                    region = Rect::new(win.rect.x, win.rect.y, sw, sh);
                 }
             }
         }
-        let Ok(mut frame) = screen.grab(region) else {
+        let Ok(mut frame) = screen.grab_stream(region) else {
             continue;
         };
-        if frame.width() != w || frame.height() != h {
+        if frame.width() != sw || frame.height() != sh {
             continue; // region partly off-screen this tick
         }
         let t_ms = (now - start - paused_total).as_millis() as u64;
@@ -419,11 +601,14 @@ fn run_capture(
             }
         }
         let ts = (t_ms as i64) * 10_000;
-        let sample = make_sample(&frame, ts, dur_100ns)?;
-        // SAFETY: stream 0 exists; sample lifetime is managed by COM.
-        unsafe { writer.WriteSample(0, &sample).map_err(err)? };
+        // Converting/scaling and encoding overlap with grabbing the next frame.
+        if tx.send((frame, ts)).is_err() {
+            break; // the video thread stopped on an error; reported when it is joined
+        }
         frames += 1;
     }
+    drop(tx);
+    video.join().map_err(|_| err("video thread panicked"))??;
     let elapsed = start.elapsed().saturating_sub(paused_total);
     let has_audio = audio.is_some();
     if let Some(mut a) = audio {
@@ -734,13 +919,14 @@ impl VideoWriter for MfVideoWriter {
             window: None,
             fps,
             codec: Codec::H264,
+            size: OutputSize::Native,
             mic: None,
             system_audio: false,
             cursor_highlight: false,
             click_ripples: false,
             output: out.to_path_buf(),
         };
-        let (writer, _) = make_writer(&cfg, width, height, false)?;
+        let (writer, _) = open_writer(&cfg, width, height, false)?;
         let dur = (10_000_000.0 / f64::from(fps)) as i64;
         let mut n = 0u64;
         for f in frames {
@@ -763,5 +949,181 @@ impl VideoWriter for MfVideoWriter {
             height,
             has_audio: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use screenit_capture::{CaptureError, CursorInfo, MonitorInfo, WindowInfo};
+    use screenit_record::OutputSize;
+
+    #[test]
+    fn h264_level_and_bitrate_cover_1080p_to_4k60() {
+        assert_eq!(h264_level(1920, 1080, 30), 40);
+        assert_eq!(h264_level(1920, 1080, 60), 42);
+        assert_eq!(h264_level(2560, 1440, 30), 50);
+        assert_eq!(h264_level(3840, 2160, 30), 51);
+        assert_eq!(h264_level(3840, 2160, 60), 52);
+        assert_eq!(bitrate_for(1920, 1080, 30, Codec::H264), 7_776_000);
+        assert_eq!(bitrate_for(3840, 2160, 60, Codec::H264), 62_208_000);
+        assert_eq!(bitrate_for(7680, 4320, 120, Codec::H264), 100_000_000);
+        assert_eq!(bitrate_for(2, 2, 1, Codec::H264), 500_000);
+        assert!(
+            bitrate_for(3840, 2160, 30, Codec::H265) < bitrate_for(3840, 2160, 30, Codec::H264)
+        );
+    }
+
+    #[test]
+    fn scaling_keeps_flat_colour_and_maps_edges() {
+        let src = Raster::new(4, 4, [10, 20, 30, 255]).unwrap();
+        let mut dst = vec![0u8; 8 * 6 * 4];
+        scale_to_bgra(&src, &mut dst, 8, 6);
+        assert!(dst.chunks_exact(4).all(|p| p == [30, 20, 10, 255]));
+        // Left half black, right half white stays split down the middle after upscaling.
+        let mut half = Raster::new(4, 2, [0, 0, 0, 255]).unwrap();
+        for y in 0..2 {
+            for x in 2..4 {
+                half.put(x, y, [255, 255, 255, 255]);
+            }
+        }
+        let mut out = vec![0u8; 8 * 4 * 4];
+        scale_to_bgra(&half, &mut out, 8, 4);
+        assert_eq!(out[0], 0);
+        assert_eq!(out[(8 * 4 - 1) * 4], 255);
+        // Degenerate sizes are ignored rather than panicking.
+        scale_to_bgra(&half, &mut out, 0, 4);
+        scale_to_bgra(&half, &mut [], 8, 4);
+    }
+
+    /// Frame with a bright vertical bar at x = w/4 and a bright horizontal bar at y = h/4 on a
+    /// dark gradient: a sheared or mis-strided decode would move or smear them.
+    fn bars(w: u32, h: u32, shift: u32) -> Raster {
+        let mut data = vec![0u8; w as usize * h as usize * 4];
+        let (vx, hy) = (w / 4 + shift, h / 4);
+        for y in 0..h {
+            for x in 0..w {
+                let on = (vx..vx + 24).contains(&x) || (hy..hy + 24).contains(&y);
+                let v = if on { 255 } else { 20 + (x * 40 / w) as u8 };
+                let i = (y as usize * w as usize + x as usize) * 4;
+                data[i..i + 4].copy_from_slice(&[v, v, v, 255]);
+            }
+        }
+        Raster::from_rgba(w, h, data).unwrap()
+    }
+
+    fn assert_bars(frame: &Raster, w: u32, h: u32) {
+        assert_eq!((frame.width(), frame.height()), (w, h));
+        let lum = |x: u32, y: u32| u32::from(frame.get(x as i32, y as i32).unwrap()[0]);
+        let (vx, hy) = (w / 4, h / 4);
+        // Bar centres bright, a clear margin either side dark.
+        assert!(lum(vx + 12, h / 2) > 200, "vertical bar missing");
+        assert!(lum(vx - 40, h / 2) < 90, "vertical bar smeared left");
+        assert!(lum(vx + 70, h / 2) < 90, "vertical bar smeared right");
+        assert!(lum(w / 2, hy + 12) > 200, "horizontal bar missing");
+        assert!(lum(w / 2, hy - 40) < 90, "horizontal bar smeared up");
+        assert!(lum(w / 2, hy + 70) < 90, "horizontal bar smeared down");
+    }
+
+    fn temp_mp4(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("screenit-{name}-{}.mp4", std::process::id()))
+    }
+
+    fn write_and_check(w: u32, h: u32) {
+        let out = temp_mp4(&format!("enc{w}x{h}"));
+        let mut frames = (0..12).map(|i| Ok(bars(w, h, i)));
+        let res = MfVideoWriter
+            .write(&out, w, h, 30, &mut frames)
+            .expect("encode");
+        assert_eq!((res.width, res.height, res.frames), (w, h, 12));
+        let frame = MfVideoReader::new().frame_at(&out, 0).expect("decode");
+        assert_bars(&frame, w, h);
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn encodes_and_decodes_2560x1440_without_shear() {
+        write_and_check(2560, 1440);
+    }
+
+    #[test]
+    fn encodes_and_decodes_3840x2160_without_shear() {
+        write_and_check(3840, 2160);
+    }
+
+    /// A screen that always shows the same synthetic 1920x1080 picture.
+    struct Synthetic(Raster);
+
+    impl ScreenSource for Synthetic {
+        fn monitors(&self) -> Result<Vec<MonitorInfo>, CaptureError> {
+            Ok(vec![MonitorInfo {
+                id: 0,
+                name: "synthetic".into(),
+                rect: Rect::new(0, 0, self.0.width(), self.0.height()),
+                dpi: 96,
+                primary: true,
+            }])
+        }
+        fn windows(&self) -> Result<Vec<WindowInfo>, CaptureError> {
+            Ok(Vec::new())
+        }
+        fn grab(&self, rect: Rect) -> Result<Raster, CaptureError> {
+            self.0.crop(rect).ok_or(CaptureError::Empty)
+        }
+        fn grab_window(&self, id: u64) -> Result<Raster, CaptureError> {
+            Err(CaptureError::NoWindow(id))
+        }
+        fn cursor(&self) -> Option<CursorInfo> {
+            None
+        }
+        fn foreground(&self) -> Option<WindowInfo> {
+            None
+        }
+    }
+
+    #[test]
+    fn recorder_scales_a_1080p_region_to_each_output_preset() {
+        for (size, (w, h)) in [
+            (OutputSize::P1440, (2560, 1440)),
+            (OutputSize::P2160, (3840, 2160)),
+            (OutputSize::P1080, (1920, 1080)),
+        ] {
+            let mut rec = MfRecorder::new(Arc::new(Synthetic(bars(1920, 1080, 0))));
+            let out = temp_mp4(&format!("scale{}", size.as_str()));
+            let cfg = RecordConfig {
+                region: Rect::new(0, 0, 1920, 1080),
+                window: None,
+                fps: 15,
+                codec: Codec::H264,
+                size,
+                mic: None,
+                system_audio: false,
+                cursor_highlight: false,
+                click_ripples: false,
+                output: out.clone(),
+            };
+            rec.start(&cfg).expect("start");
+            std::thread::sleep(Duration::from_millis(1200));
+            let res = rec.stop().expect("stop");
+            assert_eq!((res.width, res.height), (w, h), "{size:?}");
+            assert!(res.frames >= 5, "{size:?}: only {} frames", res.frames);
+            let frame = MfVideoReader::new().frame_at(&out, 100).expect("decode");
+            assert_bars(&frame, w, h);
+            let _ = std::fs::remove_file(&out);
+        }
+    }
+
+    #[test]
+    fn scaling_1080p_to_4k_fits_a_frame_interval() {
+        let src = bars(1920, 1080, 0);
+        let mut dst = vec![0u8; 3840 * 2160 * 4];
+        let t = Instant::now();
+        for _ in 0..5 {
+            scale_to_bgra(&src, &mut dst, 3840, 2160);
+        }
+        let ms = t.elapsed().as_secs_f64() * 200.0; // per frame, in ms
+        eprintln!("scale 1080p -> 4K: {ms:.1} ms/frame");
+        // Budget in perf/budgets.toml is 60 ms; allow noise on shared machines.
+        assert!(ms < 150.0, "scaling took {ms:.1} ms per frame");
     }
 }

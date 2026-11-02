@@ -181,12 +181,61 @@ pub enum Codec {
     H265,
 }
 
+/// Size of the encoded video. `Native` keeps the captured pixels; the presets scale the capture
+/// (keeping its aspect ratio) so its longer side is 1920, 2560 or 3840 pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OutputSize {
+    #[default]
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "1080p")]
+    P1080,
+    #[serde(rename = "1440p")]
+    P1440,
+    #[serde(rename = "2160p")]
+    P2160,
+}
+
+impl OutputSize {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "native" => Some(Self::Native),
+            "1080p" => Some(Self::P1080),
+            "1440p" => Some(Self::P1440),
+            "2160p" => Some(Self::P2160),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::P1080 => "1080p",
+            Self::P1440 => "1440p",
+            Self::P2160 => "2160p",
+        }
+    }
+
+    /// Length of the longer side for a preset (`None` for native).
+    pub fn long_side(self) -> Option<u32> {
+        match self {
+            Self::Native => None,
+            Self::P1080 => Some(1920),
+            Self::P1440 => Some(2560),
+            Self::P2160 => Some(3840),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecordConfig {
     pub region: Rect,
     pub window: Option<u64>,
     pub fps: u32,
     pub codec: Codec,
+    /// Encoded video size (default: native).
+    #[serde(default)]
+    pub size: OutputSize,
     pub mic: Option<String>,
     pub system_audio: bool,
     pub cursor_highlight: bool,
@@ -214,9 +263,21 @@ impl RecordConfig {
         }
         Ok(())
     }
-    /// Encoder-friendly (even) frame size.
+    /// Captured frame size, made even (the platform crops one pixel from an odd side).
+    pub fn source_size(&self) -> (u32, u32) {
+        ((self.region.w & !1).max(2), (self.region.h & !1).max(2))
+    }
+
+    /// Encoded frame size: the source size, or the preset size with the same aspect ratio.
+    /// Always even and within 8192 on each side for presets.
     pub fn encode_size(&self) -> (u32, u32) {
-        (self.region.w & !1, self.region.h & !1)
+        let (sw, sh) = self.source_size();
+        let Some(long) = self.size.long_side() else {
+            return (sw, sh);
+        };
+        let scale = f64::from(long) / f64::from(sw.max(sh));
+        let fit = |v: u32| (((f64::from(v) * scale).round() as u32) & !1).clamp(2, 8192);
+        (fit(sw), fit(sh))
     }
 }
 
@@ -757,12 +818,55 @@ mod tests {
             window: None,
             fps: 30,
             codec: Codec::H264,
+            size: OutputSize::Native,
             mic: None,
             system_audio: false,
             cursor_highlight: false,
             click_ripples: false,
             output: "out.mp4".into(),
         }
+    }
+
+    #[test]
+    fn output_size_presets_keep_aspect_and_are_even() {
+        let mut c = cfg();
+        c.region = Rect::new(0, 0, 1920, 1080);
+        c.size = OutputSize::P2160;
+        assert_eq!(c.encode_size(), (3840, 2160));
+        c.size = OutputSize::P1440;
+        assert_eq!(c.encode_size(), (2560, 1440));
+        c.size = OutputSize::P1080;
+        assert_eq!(c.encode_size(), (1920, 1080));
+        // Portrait: the longer side (height) takes the preset length.
+        c.region = Rect::new(0, 0, 1080, 1920);
+        c.size = OutputSize::P2160;
+        assert_eq!(c.encode_size(), (2160, 3840));
+        // Odd, tiny and extreme regions never produce odd or zero sizes.
+        for (w, h) in [(1, 1), (3, 5), (801, 601), (16_384, 2), (2, 16_384)] {
+            for size in [
+                OutputSize::Native,
+                OutputSize::P1080,
+                OutputSize::P1440,
+                OutputSize::P2160,
+            ] {
+                c.region = Rect::new(0, 0, w, h);
+                c.size = size;
+                let (ew, eh) = c.encode_size();
+                assert!(
+                    ew >= 2 && eh >= 2 && ew % 2 == 0 && eh % 2 == 0,
+                    "{w}x{h} {size:?}"
+                );
+                assert!(ew <= 16_384 && eh <= 16_384);
+            }
+        }
+    }
+
+    #[test]
+    fn output_size_names_round_trip() {
+        for s in ["native", "1080p", "1440p", "2160p"] {
+            assert_eq!(OutputSize::parse(s).map(OutputSize::as_str), Some(s));
+        }
+        assert_eq!(OutputSize::parse("8k"), None);
     }
 
     #[test]

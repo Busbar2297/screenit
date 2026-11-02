@@ -158,6 +158,55 @@ fn recording_lifecycle_adds_library_entry() {
 }
 
 #[test]
+fn recording_output_size_param_and_setting() {
+    let (mut s, _) = fake_session(64, 64);
+    let out = std::env::temp_dir().join("scit-rec-size-test.mp4");
+    let region = json!({"x":0,"y":0,"w":1920,"h":1080,"output":out});
+    let start = |s: &mut screenit_engine::Session, extra: serde_json::Value| {
+        let mut p = region.clone();
+        if let (Some(p), Some(e)) = (p.as_object_mut(), extra.as_object()) {
+            p.extend(e.clone());
+        }
+        s.dispatch("record.start", &p)
+    };
+    // Bad names are refused and nothing starts.
+    assert!(start(&mut s, json!({"size":"8k"})).is_err());
+    assert_eq!(
+        s.dispatch("record.status", &json!({})).unwrap()["state"],
+        "idle"
+    );
+    // An explicit preset wins.
+    start(&mut s, json!({"size":"2160p"})).unwrap();
+    let r = s.dispatch("record.stop", &json!({})).unwrap();
+    assert_eq!(
+        (
+            r["result"]["width"].as_u64(),
+            r["result"]["height"].as_u64()
+        ),
+        (Some(3840), Some(2160))
+    );
+    // Without one, the Recording setting decides.
+    s.dispatch(
+        "settings.set",
+        &json!({"path":"recording.output","value":"1440p"}),
+    )
+    .unwrap();
+    start(&mut s, json!({})).unwrap();
+    let r = s.dispatch("record.stop", &json!({})).unwrap();
+    assert_eq!(
+        (
+            r["result"]["width"].as_u64(),
+            r["result"]["height"].as_u64()
+        ),
+        (Some(2560), Some(1440))
+    );
+    // Native keeps the captured size.
+    start(&mut s, json!({"size":"native"})).unwrap();
+    let r = s.dispatch("record.stop", &json!({})).unwrap();
+    assert_eq!(r["result"]["width"], 1920);
+}
+
+#[test]
 fn image_ops_flatten_and_change_size() {
     let (mut s, _) = fake_session(60, 40);
     s.dispatch("capture.fullscreen", &json!({})).unwrap();

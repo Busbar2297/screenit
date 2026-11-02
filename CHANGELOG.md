@@ -18,6 +18,7 @@
 
 ### Recording
 - MP4 (H.264) screen recording of an area, a window or a whole monitor.
+- 2K and 4K recording: output size presets (native, 1080p, 1440p, 2160p, aspect ratio kept), GPU desktop duplication (DXGI) with a GDI fallback, hardware encoder when available, H.264 level 4.0 to 5.2 and up to 100 Mbit/s.
 - Microphone and system audio, webcam picture-in-picture, cursor highlight and click ripples.
 - Countdown, floating pause/resume/stop toolbar that never appears in the recording.
 - Trim, cut, combine, GIF export, video from images, Export MP4.

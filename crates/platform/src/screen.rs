@@ -36,11 +36,14 @@ fn platform<E: std::fmt::Display>(e: E) -> CaptureError {
 }
 
 #[derive(Default)]
-pub struct Win32Screen;
+pub struct Win32Screen {
+    /// GPU desktop duplication used while recording; GDI is the fallback.
+    dup: std::sync::Mutex<crate::dup::Duplicator>,
+}
 
 impl Win32Screen {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 }
 
@@ -262,6 +265,18 @@ impl ScreenSource for Win32Screen {
                 ok != 0
             }
         })
+    }
+
+    fn grab_stream(&self, rect: Rect) -> Result<Raster, CaptureError> {
+        let fast = self
+            .dup
+            .lock()
+            .ok()
+            .and_then(|mut d| d.grab(rect, &mut |r| self.grab(r).ok()));
+        if let Some(r) = fast {
+            return Ok(r);
+        }
+        self.grab(rect)
     }
 
     fn grab_window(&self, id: u64) -> Result<Raster, CaptureError> {

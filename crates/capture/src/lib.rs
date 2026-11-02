@@ -62,6 +62,11 @@ pub trait ScreenSource: Send + Sync {
     fn windows(&self) -> Result<Vec<WindowInfo>, CaptureError>;
     /// Pixels of a rectangle in virtual-screen coordinates.
     fn grab(&self, rect: Rect) -> Result<Raster, CaptureError>;
+    /// Like grab, for a steady stream of frames (recording). Sources may use a faster path that
+    /// is only worthwhile when called repeatedly; the default is grab.
+    fn grab_stream(&self, rect: Rect) -> Result<Raster, CaptureError> {
+        self.grab(rect)
+    }
     fn grab_window(&self, id: u64) -> Result<Raster, CaptureError>;
     fn cursor(&self) -> Option<CursorInfo>;
     fn foreground(&self) -> Option<WindowInfo>;

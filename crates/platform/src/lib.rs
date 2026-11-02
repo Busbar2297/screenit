@@ -7,6 +7,7 @@ pub mod audio;
 pub mod autostart;
 pub mod camera;
 mod clipboard;
+pub mod dup;
 pub mod hotkeys;
 pub mod input;
 pub mod instance;

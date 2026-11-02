@@ -28,7 +28,7 @@ components already built into Windows.
 | **Annotate** | Arrows, shapes, text, callouts, numbered steps, highlighter, blur, pen, stamps, magnifier, crop and cut-out. Everything stays editable until you export. Unlimited undo/redo. |
 | **Effects** | Borders, shadows, torn edges, reflection, spotlight, watermark, perspective and page curl. |
 | **Smart tools** | Grab text with OCR (offline Windows OCR in English and Arabic, or optionally a local vision model through LM Studio), Smart Redact (emails, phone numbers, card numbers, IPs, URLs, your own terms), background removal. |
-| **Record** | MP4 (H.264) of an area, a window or a whole monitor, with microphone, system audio, webcam picture-in-picture and cursor effects. A floating pause/stop toolbar that never shows up in the video. |
+| **Record** | MP4 (H.264) of an area, a window or a whole monitor, up to 4K (native size or scaled to 1080p / 1440p / 2160p; GPU desktop duplication keeps it smooth), with microphone, system audio, webcam picture-in-picture and cursor effects. A floating pause/stop toolbar that never shows up in the video. |
 | **Edit video** | Trim, cut, combine, export to GIF, make a video from images, export MP4. |
 | **Organise** | Library grouped by day with thumbnails, tags and search. Saves go to `Pictures\screenIt` (OneDrive-aware). |
 | **Export** | PNG, JPEG, GIF, BMP, TIFF, WebP, PDF, clipboard, or the editable `.scit` project format. |

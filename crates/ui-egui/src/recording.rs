@@ -133,7 +133,8 @@ impl UiApp {
         let mut p = json!({
             "x": r.region.x, "y": r.region.y, "w": r.region.w, "h": r.region.h,
             "output": r.output,
-            "fps": 30,
+            "fps": self.session.settings.recording.fps,
+            "codec": self.session.settings.recording.codec,
             "system_audio": r.opts.system,
             "cursor_highlight": r.opts.cursor,
             "click_ripples": r.opts.cursor,

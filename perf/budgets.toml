@@ -11,3 +11,9 @@ limit = 3000
 
 [budget.flatten_4k_ms]
 limit = 100
+
+[budget.record_scale_1080p_to_4k_ms]
+limit = 60
+
+[budget.record_min_fps_2560x1600_at_30]
+limit = 24
