@@ -291,18 +291,20 @@ impl UiApp {
         let mut show = true;
         match what {
             Pending::Fullscreen => {
-                if self.run("capture.fullscreen", json!({})).is_some() {
-                    self.status = "Captured the full screen".into();
+                if let Some(v) = self.run("capture.fullscreen", json!({})) {
+                    self.show_capture(&v);
                 }
+                show = self.session.settings.opens_editor(None);
             }
             Pending::Preset => {
                 let name = preset.unwrap_or_default();
-                show = self
+                let preset_open = self
                     .session
                     .presets
                     .iter()
                     .find(|p| p.name == name)
-                    .is_none_or(|p| p.open_in_editor);
+                    .map(|p| p.open_in_editor);
+                show = self.session.settings.opens_editor(preset_open);
                 if let Some(v) = self.run("capture.preset.run", json!({"name": name})) {
                     self.show_capture(&v);
                 }
@@ -370,8 +372,12 @@ impl UiApp {
             self.session.services.screen = live;
             if let Some(v) = r {
                 self.show_capture(&v);
-                self.enter_view(ctx, View::Editor);
-                self.restore_window(ctx);
+                if self.session.settings.opens_editor(None) {
+                    self.enter_view(ctx, View::Editor);
+                    self.restore_window(ctx);
+                } else {
+                    self.settle_after_capture();
+                }
                 return;
             }
         }

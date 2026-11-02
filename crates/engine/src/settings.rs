@@ -230,6 +230,12 @@ impl Settings {
     pub fn is_silent(&self) -> bool {
         self.general.after_capture == "silent"
     }
+
+    /// Should a finished capture open the editor? A preset that opts out always wins; the
+    /// global `silent` mode turns the editor off for everything else.
+    pub fn opens_editor(&self, preset_open_in_editor: Option<bool>) -> bool {
+        !self.is_silent() && preset_open_in_editor.unwrap_or(true)
+    }
 }
 
 impl Session {
@@ -364,6 +370,17 @@ mod tests {
         assert!(s.set_setting("version", json!(9)).is_err());
         assert!(s.set_setting("recording.fps", json!(0)).is_err());
         assert!(s.settings.is_silent(), "failed sets leave settings intact");
+    }
+
+    #[test]
+    fn after_capture_mode_and_preset_override() {
+        let mut s = Settings::default();
+        assert!(s.opens_editor(None));
+        assert!(s.opens_editor(Some(true)));
+        assert!(!s.opens_editor(Some(false)));
+        s.general.after_capture = "silent".into();
+        assert!(!s.opens_editor(None));
+        assert!(!s.opens_editor(Some(true)));
     }
 
     #[test]

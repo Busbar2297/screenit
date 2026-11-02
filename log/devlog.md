@@ -60,3 +60,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## Settings
 - engine/settings.rs: versioned serde Settings (general, recording, ocr, presets) in %LOCALAPPDATA%\screenIt\settings.json, atomic write, corrupt file -> defaults, invalid values repaired. Commands settings.get/set/reset/open; presets persist on save/delete.
 - ui-egui: View::Settings (gear in capture bar and top bar), live edits.
+
+## After-capture mode
+- general.after_capture editor|silent (Settings view). Silent skips the editor, still saves/copies/adds to the library, and returns the window to where it was; a preset with open_in_editor=false overrides. Settings::opens_editor is the single decision point.
