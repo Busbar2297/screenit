@@ -56,6 +56,18 @@ fn main() {
     }
     screenit_platform::autostart::refresh(on, session.settings.general.start_minimized);
     session.on_autostart = Some(std::sync::Arc::new(screenit_platform::autostart::set));
+    let mut locale_dirs = Vec::new();
+    if let Some(d) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.join("locales")))
+    {
+        locale_dirs.push(d);
+    }
+    locale_dirs.push(dir.join("locales"));
+    screenit_i18n::set_dirs(locale_dirs);
+    if let Err(e) = screenit_i18n::set_locale(&session.settings.general.language) {
+        eprintln!("translations: {e}");
+    }
     let start_hidden = std::env::args().any(|a| a == screenit_platform::autostart::MINIMIZED_ARG);
     let presets = session.presets.clone();
 
@@ -137,9 +149,9 @@ fn main() {
 
         // Tray icon: keep it alive for the life of the process.
         let menu = Menu::new();
-        let open = MenuItem::new("Open screenIt", true, None);
-        let capture = MenuItem::new("Capture (All-in-One)", true, None);
-        let quit = MenuItem::new("Quit", true, None);
+        let open = MenuItem::new(screenit_i18n::t("tray.open"), true, None);
+        let capture = MenuItem::new(screenit_i18n::t("tray.capture"), true, None);
+        let quit = MenuItem::new(screenit_i18n::t("tray.quit"), true, None);
         let _ = menu.append_items(&[&open, &capture, &quit]);
         let mut builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))

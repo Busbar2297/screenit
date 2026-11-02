@@ -29,6 +29,7 @@ fn main() -> ExitCode {
         ),
         "package" => package().map(|_| ()),
         "msi" => msi(),
+        "i18n" => i18n_check(),
         "perf" => run_cargo(
             &[
                 "test",
@@ -118,6 +119,87 @@ fn ci(rest: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Every `t("key")` / `tf("key", ..)` literal in the UI and app sources must exist in `en.toml`.
+fn i18n_check() -> Result<(), String> {
+    let en = std::fs::read_to_string("crates/i18n/locales/en.toml").map_err(|e| e.to_string())?;
+    let keys: std::collections::HashSet<String> = en
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix('"')?
+                .split_once('"')
+                .map(|(k, _)| k.to_string())
+        })
+        .collect();
+    let mut missing = Vec::new();
+    let mut stack = vec![
+        std::path::PathBuf::from("crates/ui-egui/src"),
+        std::path::PathBuf::from("apps/screenit/src"),
+    ];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                let src = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
+                for pat in ["t(\"", "tf(\"", "display(\""] {
+                    let mut rest = src.as_str();
+                    while let Some(i) = rest.find(pat) {
+                        let before = rest[..i].chars().next_back();
+                        let after = &rest[i + pat.len()..];
+                        let ident_before = before.is_some_and(|c| c.is_alphanumeric() || c == '_');
+                        if let Some(end) = after.find('"') {
+                            let k = &after[..end];
+                            if !ident_before && pat != "display(\"" && !keys.contains(k) {
+                                missing.push(format!("{}: `{k}`", p.display()));
+                            }
+                        }
+                        rest = after;
+                    }
+                }
+            }
+        }
+    }
+    let mut locales = 0;
+    let mut gaps = Vec::new();
+    for e in std::fs::read_dir("crates/i18n/locales")
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        let text = std::fs::read_to_string(e.path()).map_err(|e| e.to_string())?;
+        locales += 1;
+        let have: std::collections::HashSet<String> = text
+            .lines()
+            .filter_map(|l| {
+                l.strip_prefix('"')?
+                    .split_once('"')
+                    .map(|(k, _)| k.to_string())
+            })
+            .collect();
+        let lacking = keys.iter().filter(|k| !have.contains(*k)).count();
+        if lacking > 0 {
+            gaps.push(format!("{}: {lacking} keys missing", e.path().display()));
+        }
+    }
+    println!("{locales} locales, {} keys in en.toml", keys.len());
+    for g in &gaps {
+        println!("  incomplete {g}");
+    }
+    if missing.is_empty() && gaps.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} unknown key(s) used in code, {} incomplete locale(s): {}",
+            missing.len(),
+            gaps.len(),
+            missing.join("; ")
+        ))
+    }
+}
+
 /// Portable release: binaries + docs staged under `release/screenit-v<version>-windows-x64/` and
 /// zipped next to it, ready to attach to a GitHub release. (An MSI installer is a documented gap.)
 fn package() -> Result<std::path::PathBuf, String> {
@@ -165,6 +247,18 @@ fn package() -> Result<std::path::PathBuf, String> {
     ] {
         if std::path::Path::new(f).exists() {
             std::fs::copy(f, stage.join(f)).map_err(|e| e.to_string())?;
+        }
+    }
+    // Editable translations ship next to the exe (users can also override in %LOCALAPPDATA%).
+    let loc = stage.join("locales");
+    std::fs::create_dir_all(&loc).map_err(|e| e.to_string())?;
+    let entries = std::fs::read_dir("crates/i18n/locales").map_err(|e| e.to_string())?;
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.extension().is_some_and(|x| x == "toml") {
+            if let Some(n) = p.file_name() {
+                std::fs::copy(&p, loc.join(n)).map_err(|e| e.to_string())?;
+            }
         }
     }
     let zip = root.join(format!("{name}.zip"));

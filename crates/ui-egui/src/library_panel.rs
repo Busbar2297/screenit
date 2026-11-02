@@ -115,11 +115,18 @@ impl UiApp {
             .and_then(|v| v.as_array().cloned())
             .unwrap_or_default();
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Library").size(24.0).strong());
             ui.label(
-                egui::RichText::new(format!("{} captures", entries.len()))
-                    .size(13.0)
-                    .color(theme::MUTED),
+                egui::RichText::new(screenit_i18n::t("lib.title"))
+                    .size(24.0)
+                    .strong(),
+            );
+            ui.label(
+                egui::RichText::new(screenit_i18n::tf(
+                    "lib.count",
+                    &[("n", &entries.len().to_string())],
+                ))
+                .size(13.0)
+                .color(theme::MUTED),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 egui::Frame::default()
@@ -133,7 +140,7 @@ impl UiApp {
                             icons::paint(ui.painter(), Icon::Search, r, theme::MUTED);
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.lib_query)
-                                    .hint_text("Search title, app or tag")
+                                    .hint_text(screenit_i18n::t("lib.search"))
                                     .frame(egui::Frame::NONE)
                                     .desired_width(240.0),
                             );
@@ -145,7 +152,11 @@ impl UiApp {
         if entries.is_empty() {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("Nothing here yet").size(18.0).strong());
+                ui.label(
+                    egui::RichText::new(screenit_i18n::t("lib.empty"))
+                        .size(18.0)
+                        .strong(),
+                );
                 ui.label(
                     egui::RichText::new(
                         "Captures are filed here by day and time as you take them.",
@@ -195,15 +206,15 @@ impl UiApp {
                                 action = Some(("open", id));
                             }
                             resp.context_menu(|ui| {
-                                if ui.button("Open in editor").clicked() {
+                                if ui.button(screenit_i18n::t("lib.open")).clicked() {
                                     action = Some(("open", id));
                                     ui.close();
                                 }
-                                if ui.button("Copy to clipboard").clicked() {
+                                if ui.button(screenit_i18n::t("lib.copy")).clicked() {
                                     action = Some(("copy", id));
                                     ui.close();
                                 }
-                                if ui.button("Remove from library").clicked() {
+                                if ui.button(screenit_i18n::t("lib.remove")).clicked() {
                                     action = Some(("delete", id));
                                     ui.close();
                                 }
@@ -220,7 +231,7 @@ impl UiApp {
                         .run("library.share", json!({"id": id, "mode": "clipboard"}))
                         .is_some()
                     {
-                        self.status = "Copied to clipboard".into();
+                        self.status = screenit_i18n::t("status.copied");
                     }
                 }
                 _ => {

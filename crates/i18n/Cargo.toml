@@ -1,0 +1,13 @@
+[package]
+name = "screenit-i18n"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+toml = { workspace = true }
+unicode-bidi = { workspace = true }
+ar-reshaper = { workspace = true }
+
+[lints]
+workspace = true

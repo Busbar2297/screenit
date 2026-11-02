@@ -12,6 +12,7 @@ fn file_name_of(path: &str) -> String {
         .unwrap_or_default()
 }
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
+use screenit_i18n::t;
 use serde_json::json;
 
 const SWATCHES: [Color32; 10] = [
@@ -39,10 +40,14 @@ impl UiApp {
                     .strong()
                     .color(TEXT),
             );
-            ui.label(egui::RichText::new("Capture").size(13.0).color(MUTED));
+            ui.label(
+                egui::RichText::new(t("bar.capture"))
+                    .size(13.0)
+                    .color(MUTED),
+            );
         });
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             let size = Vec2::new(200.0, 104.0);
             let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
             let hovered = resp.hovered();
@@ -74,14 +79,14 @@ impl UiApp {
             p.text(
                 rect.left_center() + Vec2::new(74.0, -12.0),
                 egui::Align2::LEFT_CENTER,
-                "Capture",
+                t("bar.capture"),
                 egui::FontId::proportional(22.0),
                 Color32::WHITE,
             );
             p.text(
                 rect.left_center() + Vec2::new(75.0, 12.0),
                 egui::Align2::LEFT_CENTER,
-                "Region or window",
+                t("bar.capture.sub"),
                 egui::FontId::proportional(11.5),
                 Color32::from_white_alpha(200),
             );
@@ -92,48 +97,93 @@ impl UiApp {
                 Color32::WHITE,
                 Color32::from_black_alpha(70),
             );
-            if resp
-                .on_hover_text("All-in-One: drag a region or click a window")
-                .clicked()
-            {
+            if resp.on_hover_text(t("bar.capture.tip")).clicked() {
                 self.start_capture(ctx, Pending::Overlay, None);
             }
             let ts = Vec2::new(86.0, 104.0);
-            let rec = theme::tile(ui, Icon::Record, "Record", "Video", ts, true);
+            let rec = theme::tile(
+                ui,
+                Icon::Record,
+                &t("bar.record"),
+                &t("bar.record.sub"),
+                ts,
+                true,
+            );
             ui.painter().circle_filled(
                 Pos2::new(rec.rect.center().x, rec.rect.min.y + ts.y * 0.36),
                 6.0,
                 crate::recording::REC_RED,
             );
-            if rec
-                .on_hover_text("Record a video of an area, a window or the whole screen")
-                .clicked()
-            {
+            if rec.on_hover_text(t("bar.record.tip")).clicked() {
                 self.start_capture(ctx, Pending::RecordOverlay, None);
             }
-            if theme::tile(ui, Icon::Fullscreen, "Fullscreen", "Ctrl+Shift+F", ts, true).clicked() {
+            if theme::tile(
+                ui,
+                Icon::Fullscreen,
+                &t("bar.fullscreen"),
+                "Ctrl+Shift+F",
+                ts,
+                true,
+            )
+            .clicked()
+            {
                 self.start_capture(ctx, Pending::Fullscreen, None);
             }
-            if theme::tile(ui, Icon::Clipboard, "Paste", "Clipboard", ts, true).clicked()
+            if theme::tile(
+                ui,
+                Icon::Clipboard,
+                &t("bar.paste"),
+                &t("bar.paste.sub"),
+                ts,
+                true,
+            )
+            .clicked()
                 && self.run("capture.import.clipboard", json!({})).is_some()
             {
                 self.fit = true;
                 self.enter_view(ctx, View::Editor);
             }
-            if theme::tile(ui, Icon::Library, "Library", "By day", ts, true).clicked() {
+            if theme::tile(
+                ui,
+                Icon::Library,
+                &t("bar.library"),
+                &t("bar.library.sub"),
+                ts,
+                true,
+            )
+            .clicked()
+            {
                 self.enter_view(ctx, View::Library);
             }
-            if theme::tile(ui, Icon::Gear, "Settings", "Preferences", ts, true).clicked() {
+            if theme::tile(
+                ui,
+                Icon::Gear,
+                &t("bar.settings"),
+                &t("bar.settings.sub"),
+                ts,
+                true,
+            )
+            .clicked()
+            {
                 self.open_settings(ctx);
             }
             let has_doc = self.session.doc.is_some();
-            if theme::tile(ui, Icon::Editor, "Editor", "Last capture", ts, has_doc).clicked() {
+            if theme::tile(
+                ui,
+                Icon::Editor,
+                &t("bar.editor"),
+                &t("bar.editor.sub"),
+                ts,
+                has_doc,
+            )
+            .clicked()
+            {
                 self.enter_view(ctx, View::Editor);
             }
         });
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Video").size(11.5).color(MUTED));
+            ui.label(egui::RichText::new(t("bar.video")).size(11.5).color(MUTED));
             ui.add_space(2.0);
             self.record_options(ui);
         });
@@ -152,58 +202,56 @@ impl UiApp {
 
     /// Editor / library top bar: brand, capture actions, history, output actions.
     pub(crate) fn top_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let (r, _) = ui.allocate_exact_size(Vec2::splat(26.0), egui::Sense::hover());
             theme::brand_mark(ui.painter(), r);
             ui.label(egui::RichText::new("screenIt").size(15.0).strong());
             ui.add_space(10.0);
-            if theme::pill(ui, Icon::Capture, "New capture", true)
+            if theme::pill(ui, Icon::Capture, &t("top.new_capture"), true)
                 .on_hover_text("Print Screen")
                 .clicked()
             {
                 self.start_capture(ctx, Pending::Overlay, None);
             }
-            if theme::icon_button(ui, Icon::Record, "Record video", false, 32.0).clicked() {
+            if theme::icon_button(ui, Icon::Record, &t("top.record"), false, 32.0).clicked() {
                 self.start_capture(ctx, Pending::RecordOverlay, None);
             }
-            if theme::icon_button(ui, Icon::Fullscreen, "Capture full screen", false, 32.0)
-                .clicked()
+            if theme::icon_button(ui, Icon::Fullscreen, &t("top.fullscreen"), false, 32.0).clicked()
             {
                 self.start_capture(ctx, Pending::Fullscreen, None);
             }
-            if theme::icon_button(
-                ui,
-                Icon::Clipboard,
-                "Paste image from clipboard",
-                false,
-                32.0,
-            )
-            .clicked()
+            if theme::icon_button(ui, Icon::Clipboard, &t("top.paste"), false, 32.0).clicked()
                 && self.run("capture.import.clipboard", json!({})).is_some()
             {
                 self.fit = true;
-                self.status = "Imported clipboard image".into();
+                self.status = t("status.imported");
                 self.view = View::Editor;
             }
             separator(ui);
             let lib = self.view == View::Library;
-            if theme::icon_button(ui, Icon::Library, "Library", lib, 32.0).clicked() {
+            if theme::icon_button(ui, Icon::Library, &t("top.library"), lib, 32.0).clicked() {
                 self.view = if lib && self.session.doc.is_some() {
                     View::Editor
                 } else {
                     View::Library
                 };
             }
-            if theme::icon_button(ui, Icon::Editor, "Editor", self.view == View::Editor, 32.0)
-                .clicked()
+            if theme::icon_button(
+                ui,
+                Icon::Editor,
+                &t("top.editor"),
+                self.view == View::Editor,
+                32.0,
+            )
+            .clicked()
             {
                 self.view = View::Editor;
             }
             if theme::icon_button(
                 ui,
                 Icon::Gear,
-                "Settings",
+                &t("top.settings"),
                 self.view == View::Settings,
                 32.0,
             )
@@ -211,8 +259,8 @@ impl UiApp {
             {
                 self.open_settings(ctx);
             }
-            if theme::pill(ui, Icon::Compact, "Capture bar", false)
-                .on_hover_text("Back to the small capture bar (Ctrl+Shift+B)")
+            if theme::pill(ui, Icon::Compact, &t("top.capture_bar"), false)
+                .on_hover_text(t("top.capture_bar.tip"))
                 .clicked()
             {
                 self.enter_view(ctx, View::Compact);
@@ -221,49 +269,42 @@ impl UiApp {
                 return;
             }
             separator(ui);
-            if theme::icon_button(ui, Icon::Undo, "Undo (Ctrl+Z)", false, 32.0).clicked() {
+            if theme::icon_button(ui, Icon::Undo, &t("top.undo"), false, 32.0).clicked() {
                 self.run("edit.undo", json!({}));
             }
-            if theme::icon_button(ui, Icon::Redo, "Redo (Ctrl+Y)", false, 32.0).clicked() {
+            if theme::icon_button(ui, Icon::Redo, &t("top.redo"), false, 32.0).clicked() {
                 self.run("edit.redo", json!({}));
             }
             if self.session.doc.is_some()
-                && theme::icon_button(
-                    ui,
-                    Icon::Text,
-                    "Copy text from the image (OCR)",
-                    false,
-                    32.0,
-                )
-                .clicked()
+                && theme::icon_button(ui, Icon::Text, &t("top.ocr"), false, 32.0).clicked()
             {
                 self.grab_document_text(ctx);
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(crate::far_layout(), |ui| {
                 let has_doc = self.session.doc.is_some();
                 let video = self.video.as_ref().map(|v| v.path.clone());
                 if let Some(src) = &video {
-                    if theme::pill(ui, Icon::Export, "Export MP4", true)
-                        .on_hover_text("Save this recording (with its audio) as an MP4 file")
+                    if theme::pill(ui, Icon::Export, &t("top.export_mp4"), true)
+                        .on_hover_text(t("top.export_mp4.tip"))
                         .clicked()
                     {
                         self.export_mp4(src);
                     }
                 }
                 let png = if video.is_some() {
-                    "Export frame"
+                    t("top.export_frame")
                 } else {
-                    "Export PNG"
+                    t("top.export_png")
                 };
-                if theme::pill_enabled(ui, Icon::Export, png, video.is_none(), has_doc)
-                    .on_hover_text("Save as a PNG image (Ctrl+S)")
+                if theme::pill_enabled(ui, Icon::Export, &png, video.is_none(), has_doc)
+                    .on_hover_text(t("top.export.tip"))
                     .clicked()
                 {
                     self.save_png();
                 }
                 if video.is_none()
-                    && theme::pill_enabled(ui, Icon::Save, "Save", false, has_doc)
-                        .on_hover_text("Save as .scit (keeps annotations editable)")
+                    && theme::pill_enabled(ui, Icon::Save, &t("top.save"), false, has_doc)
+                        .on_hover_text(t("top.save.tip"))
                         .clicked()
                 {
                     let name = file_name_of(&default_output(screenit_format::EXT));
@@ -274,7 +315,7 @@ impl UiApp {
                         self.saved_to("Capture", &path);
                     }
                 }
-                if theme::pill_enabled(ui, Icon::Copy, "Copy", false, has_doc)
+                if theme::pill_enabled(ui, Icon::Copy, &t("top.copy"), false, has_doc)
                     .on_hover_text("Ctrl+C")
                     .clicked()
                 {
@@ -307,14 +348,14 @@ impl UiApp {
     /// "Show in folder" link for the last written file.
     fn reveal_link(&self, ui: &mut egui::Ui) {
         let Some(p) = &self.last_saved else { return };
-        if theme::icon_button(ui, Icon::Folder, "Show in folder", false, 22.0).clicked() {
+        if theme::icon_button(ui, Icon::Folder, &t("top.show_folder"), false, 22.0).clicked() {
             screenit_platform::shell::reveal(p);
         }
     }
 
     pub(crate) fn copy_doc(&mut self) {
         if self.run("edit.copy", json!({})).is_some() {
-            self.status = "Copied to clipboard".into();
+            self.status = t("status.copied");
         }
     }
 

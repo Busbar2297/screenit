@@ -8,6 +8,7 @@ pub const LAYERS: &[(&str, u8)] = &[
     ("geom", 0),
     ("raster", 0),
     ("codecs", 0),
+    ("i18n", 0),
     ("doc", 1),
     ("ops", 2),
     ("algo", 2),

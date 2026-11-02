@@ -802,3 +802,12 @@ tier = 3
 status = "done"
 commands = ["capture.grab_text", "ocr.info"]
 tests = ["commands::ocr_engine_setting_selects_windows_llm_or_fallback"]
+
+[[row]]
+id = "ui.i18n"
+group = "Settings"
+title = "Interface languages (28, Arabic right-to-left) with editable translation files"
+tier = 2
+status = "done"
+commands = ["settings.set"]
+tests = ["tests::every_bundled_locale_is_complete", "tests::rtl_text_is_shaped_and_reordered_but_latin_is_untouched"]

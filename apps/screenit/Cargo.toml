@@ -11,6 +11,7 @@ screenit-platform = { workspace = true }
 screenit-ui-egui = { workspace = true }
 screenit-automation = { workspace = true }
 screenit-capture = { workspace = true }
+screenit-i18n = { workspace = true }
 screenit-library = { workspace = true }
 serde_json = { workspace = true }
 tray-icon = { workspace = true }

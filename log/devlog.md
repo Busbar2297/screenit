@@ -74,3 +74,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - platform/ocr.rs: language selection (auto/en/ar) via TryCreateFromLanguage, clear error when the pack is missing.
 - New crate screenit-llm (L5): OpenAI-compatible /v1/models + /v1/chat/completions, image downscaled to 2048px, 2MB response cap, timeouts; fake-server tests.
 - engine: OcrJob (settings ocr.engine windows|llm|windows_then_llm), command ocr.info; UI runs OCR on a worker thread (editor Copy text button) and has a Test connection button. Verified live against LM Studio (gemma-4-e4b) with an Arabic+English image.
+
+## Languages
+- New crate screenit-i18n (L0): 28 bundled locale files (en, 24 EU languages, ar, ru, ja, zh-Hans) as flat TOML in crates/i18n/locales; English is the fallback, then the key. Overrides load from <exe>\locales then %LOCALAPPDATA%\screenIt\locales (Settings: Reload / Edit translations).
+- Arabic: ar-reshaper (no ligatures: lam-alef glyphs are missing in system fonts) + unicode-bidi, so egui's LTR renderer shows it right; panels and rows mirror for RTL (h_row, start_layout, far_layout). System fallback fonts for ar/ja/zh installed per language.
+- cargo xtask i18n checks keys used in code exist in en.toml and every locale is complete; package/msi ship the locales folder.
+- Translations are machine-drafted, not natively reviewed.
+- Verified visually via PrintWindow: ar (mirrored), ja, ru.

@@ -33,6 +33,7 @@
 
 ### Known gaps
 - Start with Windows (minimized to the tray) from Settings, for the portable EXE and the installer.
+- 28 interface languages (all 24 EU languages, Arabic with right-to-left layout, Russian, Japanese, Simplified Chinese). Translations are plain TOML files you can edit and reload without restarting.
 - Per-user MSI installer (`cargo xtask msi`, WiX v3, unsigned).
 - No audio playback in the built-in video player; no microphone/camera picker in the UI yet.
 - Recording is GDI-polled (about 25 fps at 720p).

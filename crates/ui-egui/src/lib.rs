@@ -3,6 +3,7 @@
 
 mod canvas;
 mod chrome;
+mod fonts;
 mod icons;
 mod library_panel;
 mod overlay;
@@ -167,6 +168,8 @@ pub struct UiApp {
     pub(crate) llm_rx: Option<Receiver<Result<Vec<String>, String>>>,
     pub(crate) ocr_rx: Option<Receiver<Result<screenit_engine::OcrOutput, String>>>,
     pub(crate) settings_tab: settings_panel::Tab,
+    /// Language whose fonts are installed (empty until the first frame).
+    applied_lang: String,
 }
 
 impl UiApp {
@@ -182,7 +185,7 @@ impl UiApp {
             width: 3.0,
             text: "Text".into(),
             zoom: 1.0,
-            status: "Ready. Press Print Screen to capture.".into(),
+            status: screenit_i18n::t("status.ready"),
             drag: None,
             pen: Vec::new(),
             selected: None,
@@ -208,6 +211,7 @@ impl UiApp {
             llm_rx: None,
             ocr_rx: None,
             settings_tab: settings_panel::Tab::General,
+            applied_lang: String::new(),
         }
     }
 
@@ -401,7 +405,7 @@ impl UiApp {
         while let Ok(ev) = self.events.try_recv() {
             match ev {
                 UiEvent::RunPreset(_) if self.is_recording() => {
-                    self.status = "Stop the recording before taking a capture".into();
+                    self.status = screenit_i18n::t("status.recording_busy");
                 }
                 UiEvent::RunPreset(name) => {
                     let all_in_one = self
@@ -462,6 +466,24 @@ impl UiApp {
 }
 
 impl UiApp {
+    /// Follow the language setting: switch the catalog and install matching fonts.
+    fn sync_language(&mut self, ctx: &egui::Context) {
+        let want = self.session.settings.general.language.clone();
+        if want == self.applied_lang {
+            return;
+        }
+        if let Err(e) = screenit_i18n::set_locale(&want) {
+            self.status = screenit_i18n::tf("settings.translation_error", &[("error", &e)]);
+        }
+        fonts::install(ctx, &want);
+        // The old status line was shaped for the previous language's font; restart it.
+        if !self.applied_lang.is_empty() {
+            self.status = screenit_i18n::t("status.ready");
+        }
+        self.applied_lang = want;
+        ctx.request_repaint();
+    }
+
     /// Status line for a capture result, e.g. `Captured 2560 × 1600 · saved to C:\…\capture-1.scit`.
     fn show_capture(&mut self, v: &Value) {
         let (w, h) = (
@@ -469,8 +491,19 @@ impl UiApp {
             v["height"].as_u64().unwrap_or(0),
         );
         match v["saved"].as_str() {
-            Some(p) => self.saved_to(&format!("Captured {w} × {h} ·"), p),
-            None => self.status = format!("Captured {w} × {h}"),
+            Some(p) => {
+                self.status = screenit_i18n::tf(
+                    "status.captured_saved",
+                    &[("w", &w.to_string()), ("h", &h.to_string()), ("path", p)],
+                );
+                self.last_saved = Some(p.into());
+            }
+            None => {
+                self.status = screenit_i18n::tf(
+                    "status.captured",
+                    &[("w", &w.to_string()), ("h", &h.to_string())],
+                )
+            }
         }
     }
 
@@ -532,6 +565,8 @@ impl eframe::App for UiApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             self.send_to_tray();
         }
+        self.sync_language(ctx);
+        self.sync_language(ctx);
         self.drain_events(ctx);
         self.poll_ocr_jobs();
         self.run_pending(ctx);
@@ -597,12 +632,23 @@ impl eframe::App for UiApp {
                         .frame(bar(theme::SURFACE))
                         .show(ui, |ui| self.video_bar(ui, &ctx));
                 }
-                egui::Panel::left("tools")
+                let rtl = screenit_i18n::is_rtl();
+                let tools = if rtl {
+                    egui::Panel::right("tools")
+                } else {
+                    egui::Panel::left("tools")
+                };
+                let props = if rtl {
+                    egui::Panel::left("props")
+                } else {
+                    egui::Panel::right("props")
+                };
+                tools
                     .frame(bar(theme::SURFACE))
                     .exact_size(58.0)
                     .resizable(false)
                     .show(ui, |ui| self.tool_palette(ui));
-                egui::Panel::right("props")
+                props
                     .frame(theme::panel_frame(theme::SURFACE, 14))
                     .exact_size(236.0)
                     .resizable(false)
@@ -644,4 +690,56 @@ pub fn run(
             Ok(Box::new(app))
         }),
     )
+}
+
+/// A horizontal row that reads right to left in right-to-left languages.
+pub(crate) fn h_row<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) {
+    if screenit_i18n::is_rtl() {
+        // `with_layout` would claim all remaining height in a vertical parent; reserve one row.
+        let size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+        ui.allocate_ui_with_layout(
+            size,
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                add(ui);
+            },
+        );
+    } else {
+        ui.horizontal(|ui| {
+            add(ui);
+        });
+    }
+}
+
+/// Where text starts: left, or right in right-to-left languages.
+pub(crate) fn start_layout() -> egui::Layout {
+    if screenit_i18n::is_rtl() {
+        egui::Layout::right_to_left(egui::Align::Center)
+    } else {
+        egui::Layout::left_to_right(egui::Align::Center)
+    }
+}
+
+/// The opposite end of a row from where text starts (the "far" side).
+pub(crate) fn far_layout() -> egui::Layout {
+    if screenit_i18n::is_rtl() {
+        egui::Layout::left_to_right(egui::Align::Center)
+    } else {
+        egui::Layout::right_to_left(egui::Align::Center)
+    }
+}
+
+/// Top-down column whose items hug the start edge.
+pub(crate) fn column_layout() -> egui::Layout {
+    if screenit_i18n::is_rtl() {
+        egui::Layout::top_down(egui::Align::Max)
+    } else {
+        egui::Layout::top_down(egui::Align::Min)
+    }
+}
+
+/// `%LOCALAPPDATA%\screenIt\locales`: where edited translations live.
+pub(crate) fn user_locales_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|p| std::path::PathBuf::from(p).join("screenIt").join("locales"))
 }

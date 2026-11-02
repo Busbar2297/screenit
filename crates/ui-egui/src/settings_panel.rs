@@ -1,10 +1,12 @@
-//! The Settings view: category list on the left, form on the right. Edits apply live and are
+//! The Settings view: category list on the side, form next to it. Edits apply live and are
 //! saved to `settings.json` by the engine.
 
 use crate::icons::Icon;
 use crate::theme::{self, MUTED, TEXT};
 use crate::{UiApp, View};
 use eframe::egui;
+use screenit_engine::settings::Settings;
+use screenit_i18n::{t, tf};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -13,28 +15,35 @@ pub(crate) enum Tab {
     Ocr,
 }
 
-fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[(&str, &str)]) {
+fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[(String, String)]) {
     let shown = options
         .iter()
         .find(|(v, _)| v == value)
-        .map(|(_, l)| *l)
+        .map(|(_, l)| l.as_str())
         .unwrap_or("?");
     egui::ComboBox::from_id_salt(id)
         .selected_text(shown)
         .show_ui(ui, |ui| {
             for (v, label) in options {
-                ui.selectable_value(value, (*v).to_string(), *label);
+                ui.selectable_value(value, v.clone(), label);
             }
         });
 }
 
+fn opts(list: &[(&str, String)]) -> Vec<(String, String)> {
+    list.iter()
+        .map(|(v, l)| ((*v).to_string(), l.clone()))
+        .collect()
+}
+
 fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
-    ui.horizontal(|ui| {
-        ui.allocate_ui_with_layout(
-            egui::vec2(220.0, 22.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| ui.label(egui::RichText::new(label).color(TEXT)),
-        );
+    let cell = |ui: &mut egui::Ui| {
+        ui.allocate_ui_with_layout(egui::vec2(220.0, 22.0), crate::start_layout(), |ui| {
+            ui.label(egui::RichText::new(label).color(TEXT))
+        });
+    };
+    crate::h_row(ui, |ui| {
+        cell(ui);
         add(ui);
     });
     ui.add_space(4.0);
@@ -43,18 +52,23 @@ fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
 impl UiApp {
     pub(crate) fn settings_view(&mut self, ui: &mut egui::Ui) {
         let mut tab = self.settings_tab;
-        egui::Panel::left("settings_tabs")
-            .frame(theme::panel_frame(theme::SURFACE, 12))
+        let rtl = screenit_i18n::is_rtl();
+        let side = if rtl {
+            egui::Panel::right("settings_tabs")
+        } else {
+            egui::Panel::left("settings_tabs")
+        };
+        side.frame(theme::panel_frame(theme::SURFACE, 12))
             .exact_size(170.0)
             .resizable(false)
             .show(ui, |ui| {
-                for (t, label) in [
-                    (Tab::General, "General"),
-                    (Tab::Recording, "Recording"),
-                    (Tab::Ocr, "Text recognition"),
+                for (tb, key) in [
+                    (Tab::General, "settings.cat.general"),
+                    (Tab::Recording, "settings.cat.recording"),
+                    (Tab::Ocr, "settings.cat.ocr"),
                 ] {
-                    if ui.selectable_label(tab == t, label).clicked() {
-                        tab = t;
+                    if ui.selectable_label(tab == tb, t(key)).clicked() {
+                        tab = tb;
                     }
                 }
             });
@@ -64,10 +78,12 @@ impl UiApp {
         egui::CentralPanel::default()
             .frame(theme::panel_frame(theme::BG, 22))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| match tab {
-                    Tab::General => self.general_form(ui, &mut s),
-                    Tab::Recording => recording_form(ui, &mut s),
-                    Tab::Ocr => self.ocr_form(ui, &mut s),
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.with_layout(crate::column_layout(), |ui| match tab {
+                        Tab::General => self.general_form(ui, &mut s),
+                        Tab::Recording => recording_form(ui, &mut s),
+                        Tab::Ocr => self.ocr_form(ui, &mut s),
+                    });
                 });
             });
         if s != self.session.settings
@@ -77,51 +93,78 @@ impl UiApp {
         }
     }
 
-    fn general_form(&mut self, ui: &mut egui::Ui, s: &mut screenit_engine::settings::Settings) {
-        ui.heading("General");
+    fn general_form(&mut self, ui: &mut egui::Ui, s: &mut Settings) {
+        ui.heading(t("settings.cat.general"));
         ui.add_space(8.0);
         let g = &mut s.general;
-        row(ui, "After a capture", |ui| {
+        row(ui, &t("settings.language"), |ui| {
+            let list: Vec<(String, String)> = screenit_i18n::locales()
+                .into_iter()
+                .map(|(c, n)| (c, screenit_i18n::display(&n)))
+                .collect();
+            combo(ui, "language", &mut g.language, &list);
+        });
+        row(ui, &t("settings.after_capture"), |ui| {
             combo(
                 ui,
                 "after_capture",
                 &mut g.after_capture,
-                &[
-                    ("editor", "Open in the editor"),
-                    ("silent", "Save silently and stay out of the way"),
-                ],
+                &opts(&[
+                    ("editor", t("settings.after_capture.editor")),
+                    ("silent", t("settings.after_capture.silent")),
+                ]),
             );
         });
-        row(ui, "Copy captures to the clipboard", |ui| {
+        row(ui, &t("settings.copy_clipboard"), |ui| {
             ui.checkbox(&mut g.copy_to_clipboard, "");
         });
-        row(ui, "Include the mouse cursor", |ui| {
+        row(ui, &t("settings.include_cursor"), |ui| {
             ui.checkbox(&mut g.include_cursor, "");
         });
-        row(ui, "Save captures to", |ui| {
+        row(ui, &t("settings.save_to"), |ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut g.save_dir)
-                    .hint_text("Default: Pictures\\screenIt")
+                    .hint_text(t("settings.save_to.hint"))
                     .desired_width(320.0),
             );
         });
-        row(ui, "Start with Windows", |ui| {
+        row(ui, &t("settings.autostart"), |ui| {
             ui.checkbox(&mut g.start_with_windows, "");
         });
-        row(ui, "Start minimized to the tray", |ui| {
+        row(ui, &t("settings.minimized"), |ui| {
             ui.checkbox(&mut g.start_minimized, "");
         });
         ui.add_space(10.0);
+        crate::h_row(ui, |ui| {
+            if ui.button(t("settings.reload")).clicked() {
+                self.status = match screenit_i18n::reload() {
+                    Ok(()) => t("settings.reload"),
+                    Err(e) => tf("settings.translation_error", &[("error", &e)]),
+                };
+            }
+            if ui.button(t("settings.open_translations")).clicked()
+                && let Some(dir) = crate::user_locales_dir()
+            {
+                let _ = screenit_i18n::export_bundled(&dir);
+                screenit_platform::shell::reveal(&dir);
+            }
+        });
+        ui.label(
+            egui::RichText::new(t("settings.translation_note"))
+                .size(11.0)
+                .color(MUTED),
+        );
+        ui.add_space(10.0);
         if let Some(p) = &self.session.settings_path {
             ui.label(
-                egui::RichText::new(format!("Settings file: {}", p.display()))
+                egui::RichText::new(tf("settings.file", &[("path", &p.display().to_string())]))
                     .size(11.0)
                     .color(MUTED),
             );
         }
         ui.add_space(6.0);
-        if theme::pill(ui, Icon::Trash, "Reset to defaults", false).clicked() {
-            *s = screenit_engine::settings::Settings {
+        if theme::pill(ui, Icon::Trash, &t("settings.reset"), false).clicked() {
+            *s = Settings {
                 presets: s.presets.clone(),
                 ..Default::default()
             };
@@ -129,69 +172,73 @@ impl UiApp {
     }
 }
 
-fn recording_form(ui: &mut egui::Ui, s: &mut screenit_engine::settings::Settings) {
-    ui.heading("Recording");
+fn recording_form(ui: &mut egui::Ui, s: &mut Settings) {
+    ui.heading(t("rec.title"));
     ui.add_space(8.0);
     let r = &mut s.recording;
-    row(ui, "Frame rate", |ui| {
+    row(ui, &t("rec.fps"), |ui| {
         ui.add(
             egui::DragValue::new(&mut r.fps)
                 .range(1..=120)
                 .suffix(" fps"),
         );
     });
-    row(ui, "Codec", |ui| {
+    row(ui, &t("rec.codec"), |ui| {
         combo(
             ui,
             "codec",
             &mut r.codec,
-            &[("h264", "H.264"), ("h265", "H.265 (HEVC)")],
+            &opts(&[("h264", "H.264".into()), ("h265", "H.265 (HEVC)".into())]),
         );
     });
-    row(ui, "Output size", |ui| {
+    row(ui, &t("rec.output"), |ui| {
         combo(
             ui,
             "output",
             &mut r.output,
-            &[
-                ("native", "Native (as captured)"),
-                ("1080p", "1080p"),
-                ("1440p", "1440p (2K)"),
-                ("2160p", "2160p (4K)"),
-            ],
+            &opts(&[
+                ("native", t("rec.output.native")),
+                ("1080p", "1080p".into()),
+                ("1440p", "1440p (2K)".into()),
+                ("2160p", "2160p (4K)".into()),
+            ]),
         );
     });
-    row(ui, "Record the microphone", |ui| {
+    row(ui, &t("rec.mic"), |ui| {
         ui.checkbox(&mut r.microphone, "");
     });
-    row(ui, "Record system audio", |ui| {
+    row(ui, &t("rec.sysaudio"), |ui| {
         ui.checkbox(&mut r.system_audio, "");
     });
 }
 
 impl UiApp {
-    fn ocr_form(&mut self, ui: &mut egui::Ui, s: &mut screenit_engine::settings::Settings) {
-        ui.heading("Text recognition");
+    fn ocr_form(&mut self, ui: &mut egui::Ui, s: &mut Settings) {
+        ui.heading(t("ocr.title"));
         ui.add_space(8.0);
         let o = &mut s.ocr;
-        row(ui, "Engine", |ui| {
+        row(ui, &t("ocr.engine"), |ui| {
             combo(
                 ui,
                 "ocr_engine",
                 &mut o.engine,
-                &[
-                    ("windows", "Windows (offline)"),
-                    ("llm", "Language model (LM Studio)"),
-                    ("windows_then_llm", "Windows, then the language model"),
-                ],
+                &opts(&[
+                    ("windows", t("ocr.engine.windows")),
+                    ("llm", t("ocr.engine.llm")),
+                    ("windows_then_llm", t("ocr.engine.both")),
+                ]),
             );
         });
-        row(ui, "Language", |ui| {
+        row(ui, &t("ocr.language"), |ui| {
             combo(
                 ui,
                 "ocr_lang",
                 &mut o.language,
-                &[("auto", "Automatic"), ("en", "English"), ("ar", "Arabic")],
+                &opts(&[
+                    ("auto", t("ocr.auto")),
+                    ("en", t("ocr.english")),
+                    ("ar", t("ocr.arabic")),
+                ]),
             );
         });
         let langs = self
@@ -209,38 +256,32 @@ impl UiApp {
             .iter()
             .any(|l| l.to_ascii_lowercase().starts_with("ar"));
         ui.label(
-            egui::RichText::new(format!(
-                "Installed Windows OCR languages: {}",
-                langs.join(", ")
-            ))
-            .size(11.5)
-            .color(MUTED),
+            egui::RichText::new(tf("ocr.installed", &[("list", &langs.join(", "))]))
+                .size(11.5)
+                .color(MUTED),
         );
         if !has_ar && o.language == "ar" {
-            ui.colored_label(
-                egui::Color32::from_rgb(250, 204, 21),
-                "Arabic OCR is not installed. Add the Arabic language pack with the Optical character recognition feature.",
-            );
+            ui.colored_label(egui::Color32::from_rgb(250, 204, 21), t("ocr.missing_ar"));
         }
-        if ui.small_button("Open Windows language settings").clicked() {
+        if ui.small_button(t("ocr.open_lang")).clicked() {
             let _ = std::process::Command::new("cmd")
                 .args(["/C", "start", "", "ms-settings:regionlanguage"])
                 .spawn();
         }
         ui.add_space(14.0);
-        ui.label(egui::RichText::new("Language model server").strong());
+        ui.label(egui::RichText::new(t("ocr.server")).strong());
         ui.add_space(4.0);
-        row(ui, "Server URL", |ui| {
+        row(ui, &t("ocr.url"), |ui| {
             ui.add(egui::TextEdit::singleline(&mut o.llm_url).desired_width(320.0));
         });
-        row(ui, "Model", |ui| {
+        row(ui, &t("ocr.model"), |ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut o.llm_model)
-                    .hint_text("Empty = the model loaded in LM Studio")
+                    .hint_text(t("ocr.model.hint"))
                     .desired_width(320.0),
             );
         });
-        row(ui, "Timeout", |ui| {
+        row(ui, &t("ocr.timeout"), |ui| {
             ui.add(
                 egui::DragValue::new(&mut o.llm_timeout_secs)
                     .range(1..=600)
@@ -249,9 +290,9 @@ impl UiApp {
         });
         let models = self.llm_models.clone();
         if !models.is_empty() {
-            row(ui, "Available models", |ui| {
+            row(ui, &t("ocr.available"), |ui| {
                 egui::ComboBox::from_id_salt("llm_models")
-                    .selected_text("Pick a model")
+                    .selected_text(t("ocr.pick"))
                     .show_ui(ui, |ui| {
                         for m in &models {
                             ui.selectable_value(&mut o.llm_model, m.clone(), m);
@@ -262,15 +303,15 @@ impl UiApp {
         let url = o.llm_url.clone();
         let model = o.llm_model.clone();
         let timeout = o.llm_timeout_secs;
-        ui.horizontal(|ui| {
+        crate::h_row(ui, |ui| {
             if ui
-                .add_enabled(self.llm_rx.is_none(), egui::Button::new("Test connection"))
+                .add_enabled(self.llm_rx.is_none(), egui::Button::new(t("ocr.test")))
                 .clicked()
                 && let Some(llm) = self.session.services.llm.clone()
             {
                 let (tx, rx) = std::sync::mpsc::channel();
                 self.llm_rx = Some(rx);
-                self.llm_msg = "Connecting...".into();
+                self.llm_msg = t("ocr.connecting");
                 let ctx = ui.ctx().clone();
                 std::thread::spawn(move || {
                     let cfg = screenit_capture::LlmConfig {
@@ -294,10 +335,10 @@ impl UiApp {
             self.llm_rx = None;
             match r {
                 Ok(models) => {
-                    self.llm_msg = format!("Connected, {} model(s) available", models.len());
+                    self.llm_msg = tf("ocr.connected", &[("n", &models.len().to_string())]);
                     self.llm_models = models;
                 }
-                Err(e) => self.llm_msg = format!("Failed: {e}"),
+                Err(e) => self.llm_msg = tf("ocr.failed", &[("error", &e)]),
             }
         }
         if let Some(rx) = &self.ocr_rx
@@ -312,12 +353,15 @@ impl UiApp {
                         let _ = cb.set_text(&text);
                     }
                     self.status = if n == 0 {
-                        "No text found".into()
+                        t("status.no_text")
                     } else {
-                        format!("Copied {n} characters of text ({})", out.engine)
+                        tf(
+                            "status.copied_text",
+                            &[("n", &n.to_string()), ("engine", out.engine)],
+                        )
                     };
                 }
-                Err(e) => self.status = format!("Text recognition failed: {e}"),
+                Err(e) => self.status = tf("status.ocr_failed", &[("error", &e)]),
             }
         }
     }
@@ -334,15 +378,14 @@ impl UiApp {
         let job = self.session.ocr_job(None);
         let (tx, rx) = std::sync::mpsc::channel();
         self.ocr_rx = Some(rx);
-        self.status = "Recognising text...".into();
+        self.status = t("status.recognising");
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(job.run(&image).map_err(|e| e.to_string()));
             ctx.request_repaint();
         });
     }
-}
-impl UiApp {
+
     pub(crate) fn open_settings(&mut self, ctx: &egui::Context) {
         self.enter_view(ctx, View::Settings);
     }

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 screenit-engine = { workspace = true }
+screenit-i18n = { workspace = true }
 
 screenit-capture = { workspace = true }
 screenit-doc = { workspace = true }
