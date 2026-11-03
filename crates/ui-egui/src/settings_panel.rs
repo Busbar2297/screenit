@@ -444,17 +444,22 @@ impl UiApp {
                     .map(|w| tf("status.hide_failed", &[("error", &w)]))
                     .unwrap_or_else(|| t("status.no_secrets")),
                 Ok(scan) => {
+                    let n = scan.found.len();
                     let rects: Vec<[i32; 4]> = scan
                         .found
                         .iter()
                         .map(|f| [f.rect.x, f.rect.y, f.rect.w as i32, f.rect.h as i32])
                         .collect();
-                    match self.session.dispatch(
-                        "editor.redact.apply",
-                        &json!({"rects": rects, "mode": self.session.settings.privacy.mode}),
-                    ) {
-                        Ok(_) => tf("status.hid_secrets", &[("n", &rects.len().to_string())]),
-                        Err(e) => tf("status.hide_failed", &[("error", &e.to_string())]),
+                    let mode = self.session.settings.privacy.mode.clone();
+                    // `run` (not a raw dispatch) so the canvas redraws. A raw dispatch adds the
+                    // blur objects and the status says they were hidden, but the picture stays.
+                    if self
+                        .run("editor.redact.apply", json!({"rects": rects, "mode": mode}))
+                        .is_some()
+                    {
+                        tf("status.hid_secrets", &[("n", &n.to_string())])
+                    } else {
+                        self.status.clone()
                     }
                 }
                 Err(e) => tf("status.hide_failed", &[("error", &e)]),

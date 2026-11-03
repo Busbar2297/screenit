@@ -126,3 +126,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Opening a library image lands in the editor already fitted, with zoom out / percent / zoom in / fit in the top bar (same controls as the side panel). Zoom floor is 2% in both places; the old side-panel floor of 10% turned a zoom-out click into a zoom-in on a tall capture.
 - screenit.exe had no icon resource, and the taskbar button is recreated when the window leaves the tray, so it showed a blank page. The mark is drawn in icon_glyph.rs, embedded as icon 1 by build.rs, set on the window, and the process AppUserModelID is screenIt.
 - Project rule: a finished, tested feature is committed and pushed to origin.
+
+## 2026-11-03 - Hide secrets did not redraw (0.2.6)
+- The button reported "hid N" because editor.redact.apply succeeded, but the UI called session.dispatch directly, so doc_rev never moved and the canvas kept the old texture. It now goes through UiApp::run, which bumps the revision before the same frame redraws.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- Hide secrets now updates the picture. It reported a hidden secret and stored the cover, but the image on screen stayed unchanged.
+
 ## 0.2.5
 
 - Zoom in, zoom out and fit are in the editor top bar, including when you open an image from the library. Zoom goes down to 2% so a very tall capture can still be zoomed out.
