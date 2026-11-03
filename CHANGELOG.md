@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.10
+
+- Draw a text box, type in it, and resize or move it while the outline is showing. The outline goes away when you finish, and only the text stays.
+- Select a shape to move, resize or rotate it, and change its colour, line width and fill, or delete it.
+- Arabic text in an annotation is joined and reads from the right.
+
 ## 0.2.9
 
 - Maximize works in the library. It was shown there but stayed dimmed.

@@ -374,6 +374,24 @@ fn msi() -> Result<(), String> {
     if !ok {
         return Err("candle failed".into());
     }
+    // An older WiX install leaves a publisher policy that makes light.exe load the
+    // wrong wix.dll (MissingMethodException on Output.GetOutputType).
+    let light_config = wix.join("light.exe.config");
+    if !light_config.exists() {
+        std::fs::write(
+            &light_config,
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <runtime>
+    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
+      <publisherPolicy apply="no" />
+    </assemblyBinding>
+  </runtime>
+</configuration>
+"#,
+        )
+        .map_err(|e| e.to_string())?;
+    }
     let ok = Command::new(wix.join("light.exe"))
         .args(["-nologo", "-sval", "-out"])
         .arg(&out)
