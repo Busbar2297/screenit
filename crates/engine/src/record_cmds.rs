@@ -169,6 +169,21 @@ fn active(s: &mut Session) -> Result<&mut ActiveRecording, CommandError> {
         .ok_or_else(|| CommandError::Failed("no recording in progress".into()))
 }
 
+fn move_region(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["x", "y"])?;
+    let (x, y) = (a.i32("x")?, a.i32("y")?);
+    if x.abs() > 100_000 || y.abs() > 100_000 {
+        return Err(CommandError::Params(
+            "x and y must be within ±100000".into(),
+        ));
+    }
+    let r = active(s)?;
+    r.config.region.x = x;
+    r.config.region.y = y;
+    r.recorder.move_region(x, y).map_err(CommandError::failed)?;
+    Ok(json!({"x": x, "y": y}))
+}
+
 fn pause(s: &mut Session, p: &Value) -> CmdResult {
     Args::new(p, &[])?;
     let now = s.services.clock.now_ms();
@@ -337,6 +352,12 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"x","y","w","h","output":str.mp4,"fps"?:int,"codec"?:h264|h265,"size"?:native|1080p|1440p|2160p,"mic"?:str,"system_audio"?:bool,"cursor_highlight"?:bool,"click_ripples"?:bool,"countdown_ms"?:int,"webcam"?:bool,"pip_shape"?:rectangle|rounded|circle,"pip_size"?:5..100,"pip_corner"?:top_left|top_right|bottom_left|bottom_right,"pip_margin"?:int}"#,
             start,
         ),
+        c(
+            "record.move",
+            "Move Recording Area",
+            r#"{"x":int,"y":int}"#,
+            move_region,
+        ),
         c("record.pause", "Pause", "{}", pause),
         c("record.resume", "Resume", "{}", resume),
         c("record.stop", "Stop", "{}", stop),
@@ -403,6 +424,66 @@ mod tests {
             player,
             ..crate::Services::default()
         })
+    }
+
+    struct Shift {
+        at: Arc<Mutex<(i32, i32)>>,
+    }
+
+    impl screenit_record::Recorder for Shift {
+        fn start(&mut self, cfg: &screenit_record::RecordConfig) -> Result<(), RecordError> {
+            if let Ok(mut g) = self.at.lock() {
+                *g = (cfg.region.x, cfg.region.y);
+            }
+            Ok(())
+        }
+        fn pause(&mut self) -> Result<(), RecordError> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<(), RecordError> {
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<screenit_record::RecordingResult, RecordError> {
+            Ok(screenit_record::RecordingResult {
+                path: "clip.mp4".into(),
+                duration_ms: 0,
+                frames: 0,
+                width: 2,
+                height: 2,
+                has_audio: false,
+            })
+        }
+        fn move_region(&mut self, x: i32, y: i32) -> Result<(), RecordError> {
+            if let Ok(mut g) = self.at.lock() {
+                *g = (x, y);
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn move_shifts_the_area_and_rejects_bad_params() {
+        let at = Arc::new(Mutex::new((0, 0)));
+        let shared = at.clone();
+        let mut s = session(None);
+        s.services.recorder = Some(Box::new(move || Box::new(Shift { at: shared.clone() })));
+        assert!(s.dispatch("record.move", &json!({"x": 1, "y": 2})).is_err());
+        s.dispatch(
+            "record.start",
+            &json!({"x": 10, "y": 20, "w": 100, "h": 80, "output": "clip.mp4"}),
+        )
+        .unwrap();
+        let r = s
+            .dispatch("record.move", &json!({"x": 40, "y": 50}))
+            .unwrap();
+        assert_eq!(r["x"], 40);
+        assert_eq!(*at.lock().unwrap(), (40, 50));
+        assert!(s.dispatch("record.move", &json!({"x": 1})).is_err());
+        assert!(
+            s.dispatch("record.move", &json!({"x": 200_000, "y": 0}))
+                .is_err()
+        );
+        s.dispatch("record.stop", &json!({})).unwrap();
     }
 
     #[test]

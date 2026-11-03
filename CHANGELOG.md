@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- While a video is recording, a solid red frame marks the area. Drag the frame to move what is being recorded.
+
 ## 0.2.6
 
 - Hide secrets now updates the picture. It reported a hidden secret and stored the cover, but the image on screen stayed unchanged.

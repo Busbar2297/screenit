@@ -129,3 +129,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## 2026-11-03 - Hide secrets did not redraw (0.2.6)
 - The button reported "hid N" because editor.redact.apply succeeded, but the UI called session.dispatch directly, so doc_rev never moved and the canvas kept the old texture. It now goes through UiApp::run, which bumps the revision before the same frame redraws.
+
+## 2026-11-03 - Recording frame can be seen and moved (0.2.7)
+- There was no border once recording started, so the area was easy to lose and could not be moved. Four solid red bars now sit just outside the area (inside the screen when a side is at the edge) and are excluded from the capture. Dragging a bar calls record.move, which shifts the grab origin without changing the frame size.

@@ -12,7 +12,7 @@ use screenit_record::{
     RecordingResult, VideoInfo, VideoReader, VideoWriter, composite_webcam, draw_cursor_effects,
 };
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -89,6 +89,9 @@ type Webcam = Option<(Arc<dyn CameraSource>, Arc<Mutex<PipLayout>>)>;
 struct Shared {
     stop: AtomicBool,
     paused: AtomicBool,
+    /// Top-left of the captured area. The capture thread reads it every frame.
+    origin_x: AtomicI32,
+    origin_y: AtomicI32,
 }
 
 pub struct MfRecorder {
@@ -105,6 +108,8 @@ impl MfRecorder {
             shared: Arc::new(Shared {
                 stop: AtomicBool::new(false),
                 paused: AtomicBool::new(false),
+                origin_x: AtomicI32::new(0),
+                origin_y: AtomicI32::new(0),
             }),
             webcam: None,
             worker: None,
@@ -520,7 +525,12 @@ fn run_capture(
         })
     };
     let (sw, sh) = cfg.source_size();
-    let mut region = Rect::new(cfg.region.x, cfg.region.y, sw, sh);
+    let mut region = Rect::new(
+        shared.origin_x.load(Ordering::Relaxed),
+        shared.origin_y.load(Ordering::Relaxed),
+        sw,
+        sh,
+    );
     let mut ripples: Vec<(Point, u64)> = Vec::new();
     let mut was_down = false;
     if let Some(a) = &mut audio {
@@ -554,6 +564,9 @@ fn run_capture(
         if next < now {
             next = now + frame_dt; // fell behind: do not burst
         }
+        // A drag of the on-screen frame moves the area; the size stays fixed.
+        region.x = shared.origin_x.load(Ordering::Relaxed);
+        region.y = shared.origin_y.load(Ordering::Relaxed);
         // Follow a window as it moves (size stays fixed so the encoder keeps its geometry).
         if let Some(id) = cfg.window {
             if let Ok(wins) = screen.windows() {
@@ -639,6 +652,8 @@ impl Recorder for MfRecorder {
         }
         self.shared.stop.store(false, Ordering::SeqCst);
         self.shared.paused.store(false, Ordering::SeqCst);
+        self.shared.origin_x.store(cfg.region.x, Ordering::SeqCst);
+        self.shared.origin_y.store(cfg.region.y, Ordering::SeqCst);
         let webcam = self.webcam.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let (screen, cfg, shared) = (self.screen.clone(), cfg.clone(), self.shared.clone());
@@ -664,6 +679,12 @@ impl Recorder for MfRecorder {
             .as_ref()
             .ok_or_else(|| err("no webcam attached"))?;
         *l.lock().map_err(|_| err("layout lock poisoned"))? = layout;
+        Ok(())
+    }
+
+    fn move_region(&mut self, x: i32, y: i32) -> Result<(), RecordError> {
+        self.shared.origin_x.store(x, Ordering::SeqCst);
+        self.shared.origin_y.store(y, Ordering::SeqCst);
         Ok(())
     }
 

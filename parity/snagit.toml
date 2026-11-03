@@ -193,8 +193,8 @@ group = "Recording"
 title = "Record region / window / fullscreen"
 tier = 1
 status = "done"
-commands = ["record.start", "record.stop"]
-tests = ["e2e::records_an_mp4_that_decodes_back_to_the_fixture"]
+commands = ["record.start", "record.move", "record.stop"]
+tests = ["e2e::records_an_mp4_that_decodes_back_to_the_fixture", "record_cmds::tests::move_shifts_the_area_and_rejects_bad_params"]
 [[row]]
 id = "rec.followwindow"
 group = "Recording"

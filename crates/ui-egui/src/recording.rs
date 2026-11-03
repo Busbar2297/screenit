@@ -6,12 +6,23 @@ use crate::icons::{self, Icon};
 use crate::library_panel::VideoPlayer;
 use crate::theme::{self, BORDER, MUTED, SURFACE, SURFACE2, SURFACE3, TEXT};
 use crate::{UiApp, View, default_output};
-use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuilder, ViewportId};
+use eframe::egui::{
+    self, Color32, CursorIcon, Pos2, Rect, Sense, Stroke, Vec2, ViewportBuilder, ViewportId,
+};
 use screenit_geom::Rect as IRect;
+use screenit_i18n::t;
 use serde_json::json;
 use std::time::{Duration, Instant};
 
 pub(crate) const TOOLBAR_TITLE: &str = "screenIt recording";
+const FRAME_TITLES: [&str; 4] = [
+    "screenIt record frame 1",
+    "screenIt record frame 2",
+    "screenIt record frame 3",
+    "screenIt record frame 4",
+];
+/// Thickness of each side of the recording frame, in logical points.
+const FRAME_PT: f32 = 8.0;
 pub(crate) const REC_RED: Color32 = Color32::from_rgb(239, 68, 68);
 const COUNTDOWN: Duration = Duration::from_secs(3);
 const BAR_H: f32 = 64.0;
@@ -48,6 +59,7 @@ pub(crate) struct RecUi {
     cam_tex: Option<egui::TextureHandle>,
     cam_at: Instant,
     excluded: bool,
+    frame_excluded: bool,
 }
 
 enum Action {
@@ -131,6 +143,7 @@ impl UiApp {
             cam_tex: None,
             cam_at: Instant::now(),
             excluded: false,
+            frame_excluded: false,
         });
         ctx.request_repaint();
     }
@@ -244,6 +257,32 @@ impl UiApp {
             }
         }
 
+        let (region, screen) = (r.region, r.screen);
+        let drag = show_frame(ctx, region, screen);
+        let moved = if drag != Vec2::ZERO {
+            let ppp = ctx.pixels_per_point().max(0.1);
+            let next = moved_region(
+                region,
+                screen,
+                (drag.x * ppp).round() as i32,
+                (drag.y * ppp).round() as i32,
+            );
+            if next != region {
+                let live = r.countdown_end.is_none();
+                r.region = next;
+                live.then_some((next.x, next.y))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if !r.frame_excluded {
+            r.frame_excluded = FRAME_TITLES
+                .iter()
+                .all(|title| screenit_platform::window::exclude_from_capture(title));
+        }
+
         let ppp = ctx.pixels_per_point().max(0.1);
         let w = if r.opts.webcam { 470.0 } else { 360.0 };
         let (px, py) = toolbar_pos(r.region, r.screen, (w * ppp) as i32, (BAR_H * ppp) as i32);
@@ -271,6 +310,11 @@ impl UiApp {
                 || screenit_platform::window::exclude_from_capture(TOOLBAR_TITLE);
         }
         ctx.request_repaint_after(Duration::from_millis(if r.opts.webcam { 66 } else { 200 }));
+        if let Some((x, y)) = moved {
+            let _ = self
+                .session
+                .dispatch("record.move", &json!({"x": x, "y": y}));
+        }
         match action {
             Action::None => {}
             Action::Pause => {
@@ -283,6 +327,100 @@ impl UiApp {
             Action::Cancel => self.end_recording(ctx, false),
         }
     }
+}
+
+/// Four solid bars around `region`: just outside it, or inside when that side is at the screen edge.
+pub(crate) fn frame_bars(region: IRect, screen: IRect, thick: i32) -> [IRect; 4] {
+    let t = thick.max(1);
+    let right = screen.x + screen.w as i32;
+    let bottom = screen.y + screen.h as i32;
+    let along = |start: i32, len: i32, min: i32, max: i32| -> (i32, u32) {
+        let a = start.max(min);
+        let b = (start + len).min(max).max(a + 1);
+        (a, (b - a) as u32)
+    };
+    let cross = |outside: i32, inside: i32, min: i32, max: i32| -> i32 {
+        if outside >= min && outside + t <= max {
+            outside
+        } else {
+            inside.clamp(min, (max - t).max(min))
+        }
+    };
+    let (x, w) = along(region.x, region.w as i32, screen.x, right);
+    let (y, h) = along(region.y, region.h as i32, screen.y, bottom);
+    let top = cross(region.y - t, region.y, screen.y, bottom);
+    let bot = cross(
+        region.y + region.h as i32,
+        region.y + region.h as i32 - t,
+        screen.y,
+        bottom,
+    );
+    let left = cross(region.x - t, region.x, screen.x, right);
+    let right_x = cross(
+        region.x + region.w as i32,
+        region.x + region.w as i32 - t,
+        screen.x,
+        right,
+    );
+    [
+        IRect::new(x, top, w, t as u32),
+        IRect::new(x, bot, w, t as u32),
+        IRect::new(left, y, t as u32, h),
+        IRect::new(right_x, y, t as u32, h),
+    ]
+}
+
+/// Shift the area by a drag, keeping its size and staying on the screen.
+pub(crate) fn moved_region(region: IRect, screen: IRect, dx: i32, dy: i32) -> IRect {
+    let clamp = |v: i32, min: i32, span: i32, limit: i32| {
+        let max = min + limit - span;
+        if max >= min { (v).clamp(min, max) } else { v }
+    };
+    IRect::new(
+        clamp(region.x + dx, screen.x, region.w as i32, screen.w as i32),
+        clamp(region.y + dy, screen.y, region.h as i32, screen.h as i32),
+        region.w,
+        region.h,
+    )
+}
+
+/// The recording frame: four always-on-top bars in a solid colour. Dragging one moves the area.
+/// Returns the drag since the last frame, in logical points.
+fn show_frame(ctx: &egui::Context, region: IRect, screen: IRect) -> Vec2 {
+    let ppp = ctx.pixels_per_point().max(0.1);
+    let thick = (FRAME_PT * ppp).round().max(4.0) as i32;
+    let bars = frame_bars(region, screen, thick);
+    let mut drag = Vec2::ZERO;
+    for (i, bar) in bars.iter().enumerate() {
+        let builder = ViewportBuilder::default()
+            .with_title(FRAME_TITLES[i])
+            .with_decorations(false)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_resizable(false)
+            .with_position(Pos2::new(bar.x as f32 / ppp, bar.y as f32 / ppp))
+            .with_inner_size([bar.w as f32 / ppp, bar.h as f32 / ppp]);
+        ctx.show_viewport_immediate(
+            ViewportId::from_hash_of(("scit-rec-frame", i)),
+            builder,
+            |ui, _| {
+                let resp = ui.interact(
+                    ui.max_rect(),
+                    ui.scope_id().with("move-frame"),
+                    Sense::drag(),
+                );
+                if resp.dragged() {
+                    drag += resp.drag_delta();
+                    ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                } else if resp.hovered() {
+                    ui.ctx().set_cursor_icon(CursorIcon::Grab);
+                }
+                ui.painter().rect_filled(ui.max_rect(), 0.0, REC_RED);
+                resp.on_hover_text(t("rec.frame"));
+            },
+        );
+    }
+    drag
 }
 
 fn chip(ui: &mut egui::Ui, icon: Icon, label: &str, on: &mut bool) {
@@ -508,6 +646,32 @@ mod tests {
         // Clamped horizontally to the screen.
         let (x, _) = toolbar_pos(IRect::new(-50, 100, 60, 60), screen, 200, 60);
         assert_eq!(x, 0);
+    }
+
+    #[test]
+    fn the_frame_sits_outside_and_slides_inside_at_the_screen_edge() {
+        let screen = IRect::new(0, 0, 1000, 800);
+        let [top, bot, left, right] = frame_bars(IRect::new(100, 100, 200, 150), screen, 8);
+        assert_eq!(top, IRect::new(100, 92, 200, 8));
+        assert_eq!(bot.y, 250);
+        assert_eq!(left.x, 92);
+        assert_eq!(right.x, 300);
+        let [top, _, left, _] = frame_bars(IRect::new(0, 0, 200, 150), screen, 8);
+        assert_eq!(top.y, 0, "a region on the top edge keeps its bar on screen");
+        assert_eq!(left.x, 0);
+    }
+
+    #[test]
+    fn dragging_moves_the_area_and_stops_at_the_screen_edge() {
+        let screen = IRect::new(0, 0, 1000, 800);
+        let area = IRect::new(100, 100, 200, 150);
+        assert_eq!(
+            moved_region(area, screen, 15, -40),
+            IRect::new(115, 60, 200, 150)
+        );
+        assert_eq!(moved_region(area, screen, -500, 0).x, 0);
+        assert_eq!(moved_region(area, screen, 5000, 0).x, 800);
+        assert_eq!(moved_region(screen, screen, 10, 10), screen);
     }
 
     #[test]

@@ -311,6 +311,10 @@ pub trait Recorder: Send {
     fn set_pip_layout(&mut self, _layout: PipLayout) -> Result<(), RecordError> {
         Err(RecordError::BadConfig("no webcam attached".into()))
     }
+    /// Move the captured area. The size stays put so the encoder keeps its frame size.
+    fn move_region(&mut self, _x: i32, _y: i32) -> Result<(), RecordError> {
+        Ok(())
+    }
 }
 
 /// A live camera. `frame` returns the most recent frame, if any has arrived; real cameras open
