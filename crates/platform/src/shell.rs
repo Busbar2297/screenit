@@ -73,6 +73,34 @@ pub fn save_dialog(
     }
 }
 
+/// True for a plain `https://` address with no quotes or control characters.
+pub fn https_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    '.' | '/' | '-' | '_' | '?' | '=' | '&' | '%' | '#' | ':' | '~' | '+'
+                )
+        })
+}
+
+/// Open `url` in the default browser. Anything that is not a plain https address is ignored.
+pub fn open_url(url: &str) -> bool {
+    if !https_url(url) {
+        return false;
+    }
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new("cmd.exe")
+        .args(["/C", "start", "", url])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .is_ok()
+}
+
 /// Open Explorer with `path` selected (or the folder itself if it is a directory).
 pub fn reveal(path: &Path) {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -89,6 +117,15 @@ pub fn reveal(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn https_url_accepts_the_repository_and_rejects_other_schemes() {
+        assert!(https_url("https://github.com/Busbar2297/screenit"));
+        assert!(!https_url("http://github.com/Busbar2297/screenit"));
+        assert!(!https_url("https://evil.example/\" & calc"));
+        assert!(!https_url("https://"));
+        assert!(!open_url("notepad.exe"));
+    }
 
     #[test]
     fn output_dir_is_inside_the_pictures_known_folder() {

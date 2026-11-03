@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.8
+
+- About shows the version, a link to the GitHub repository, and the credits.
+- The Maximize button is only on the editor. The capture bar, library, settings and About stay a fixed size.
+
 ## 0.2.7
 
 - While a video is recording, a solid red frame marks the area. Drag the frame to move what is being recorded.

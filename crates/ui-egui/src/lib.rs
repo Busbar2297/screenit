@@ -108,6 +108,7 @@ pub(crate) enum View {
     Editor,
     Library,
     Settings,
+    About,
 }
 
 const COMPACT_SIZE: [f32; 2] = [1000.0, 252.0];
@@ -200,6 +201,10 @@ pub struct UiApp {
     pub(crate) toast: Option<toast::Notice>,
     /// Language whose fonts are installed (empty until the first frame).
     applied_lang: String,
+    /// View to return to from About.
+    about_from: View,
+    /// The previous frame was the editor, so leaving it restores a normal window.
+    editor_chrome: bool,
 }
 
 impl UiApp {
@@ -252,6 +257,8 @@ impl UiApp {
             reading: None,
             toast: None,
             applied_lang: String::new(),
+            about_from: View::Compact,
+            editor_chrome: false,
         }
     }
 
@@ -292,14 +299,37 @@ impl UiApp {
     /// Resize the single window for a view and switch to it.
     pub(crate) fn enter_view(&mut self, ctx: &egui::Context, view: View) {
         self.view = view;
-        let [w, h] = if view == View::Compact {
-            COMPACT_SIZE
-        } else if view == View::Settings {
-            [960.0, 660.0]
-        } else {
-            EDITOR_SIZE
+        let [w, h] = match view {
+            View::Compact => COMPACT_SIZE,
+            View::Settings => [960.0, 660.0],
+            View::About => [720.0, 560.0],
+            View::Editor | View::Library => EDITOR_SIZE,
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+    }
+
+    /// Open About, remembering the view the Back button returns to.
+    pub(crate) fn open_about(&mut self, ctx: &egui::Context) {
+        if self.view != View::About {
+            self.about_from = self.view;
+        }
+        self.enter_view(ctx, View::About);
+    }
+
+    /// Maximize, and resizing, exist only in the editor. Windows 11 still draws the Maximize
+    /// square on a resizable window after the button is disabled, so the other views are fixed.
+    fn sync_maximize_button(&mut self, ctx: &egui::Context) {
+        let editor = self.view == View::Editor;
+        if self.editor_chrome && !editor {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        }
+        self.editor_chrome = editor;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(editor));
+        ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
+            close: true,
+            minimized: true,
+            maximize: editor,
+        });
     }
 
     /// Park the window in the tray: no taskbar button, off-screen, still processing events.
@@ -700,6 +730,7 @@ impl eframe::App for UiApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.refresh_texture(ctx);
+        self.sync_maximize_button(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -745,6 +776,11 @@ impl eframe::App for UiApp {
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::BG, 18))
                     .show(ui, |ui| self.library_view(ui));
+            }
+            View::About => {
+                egui::CentralPanel::default()
+                    .frame(theme::panel_frame(theme::BG, 18))
+                    .show(ui, |ui| self.about_view(ui, &ctx));
             }
             View::Editor => {
                 self.shortcuts(&ctx);
@@ -806,6 +842,8 @@ pub fn run(
         .with_title("screenIt")
         .with_inner_size(COMPACT_SIZE)
         .with_min_inner_size([560.0, 180.0])
+        .with_resizable(false)
+        .with_maximize_button(false)
         .with_icon(egui::IconData {
             rgba: icon,
             width: 256,

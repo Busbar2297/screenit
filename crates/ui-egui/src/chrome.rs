@@ -12,8 +12,22 @@ fn file_name_of(path: &str) -> String {
         .unwrap_or_default()
 }
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
-use screenit_i18n::t;
+use screenit_i18n::{t, tf};
 use serde_json::json;
+
+const GITHUB: &str = "https://github.com/Busbar2297/screenit";
+/// Same facts as ATTRIBUTION.md, written as sentences so the About page is readable.
+const CREDITS: &str = "\
+screenIt ships no third-party images, icons or sounds. Every icon is drawn in code, and the tray icon is generated when the app starts.
+
+The interface fonts come with egui: Ubuntu Light (Ubuntu Font Licence 1.0), Hack (MIT / Bitstream Vera), Noto Emoji (SIL Open Font License 1.1) and emoji-icon-font (SIL Open Font License 1.1). Annotation text uses fonts already installed on this PC, such as Segoe UI, Arial, Calibri or Tahoma. Those are not redistributed.
+
+Libraries include eframe and egui, ureq, toml, unicode-bidi, ar-reshaper, windows and windows-sys, tray-icon, image, ab_glyph, zip, serde, clap and chrono, under permissive licenses (MIT, Apache-2.0, or similar). The full list is in Cargo.lock.
+
+Capture, recording, OCR and encoding use components that ship with Windows: GDI, DWM, Media Foundation, WASAPI and Windows.Media.Ocr. screenIt does not use ffmpeg.
+
+Snagit is a trademark of TechSmith Corporation. screenIt is an independent project and is not affiliated with or endorsed by TechSmith.
+";
 
 const SWATCHES: [Color32; 10] = [
     Color32::from_rgb(239, 68, 68),
@@ -35,6 +49,50 @@ impl UiApp {
         self.fit = false;
     }
 
+    /// About, next to the product name so it stays on screen in the compact bar.
+    fn about_button(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        if theme::pill(ui, Icon::Info, &t("bar.about"), false)
+            .on_hover_text(t("bar.about.tip"))
+            .clicked()
+        {
+            self.open_about(ctx);
+        }
+    }
+
+    /// Version, the GitHub repository, and the bundled credits.
+    pub(crate) fn about_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.add_space(4.0);
+        if theme::pill(ui, Icon::Back, &t("about.back"), false).clicked() {
+            let back = self.about_from;
+            self.enter_view(ctx, back);
+        }
+        ui.add_space(16.0);
+        ui.heading("screenIt");
+        ui.label(
+            egui::RichText::new(tf("about.version", &[("v", env!("CARGO_PKG_VERSION"))]))
+                .size(16.0),
+        );
+        ui.add_space(8.0);
+        if ui
+            .link(t("about.github"))
+            .on_hover_text(t("about.github.tip"))
+            .clicked()
+        {
+            let _ = screenit_platform::shell::open_url(GITHUB);
+        }
+        ui.add(
+            egui::Label::new(egui::RichText::new(GITHUB).color(MUTED).size(13.0)).selectable(true),
+        );
+        ui.add_space(14.0);
+        ui.label(egui::RichText::new(t("about.credits")).strong().size(16.0));
+        ui.add_space(6.0);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(CREDITS).size(13.0).color(TEXT));
+            });
+    }
+
     /// Snagit-style launcher: one big gradient Capture button plus quick-action tiles.
     pub(crate) fn capture_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         crate::h_row(ui, |ui| {
@@ -51,6 +109,7 @@ impl UiApp {
                     .size(13.0)
                     .color(MUTED),
             );
+            self.about_button(ui, ctx);
         });
         ui.add_space(6.0);
         crate::h_row(ui, |ui| {
@@ -309,6 +368,9 @@ impl UiApp {
             .clicked()
             {
                 self.open_settings(ctx);
+            }
+            if theme::icon_button(ui, Icon::Info, &t("top.about"), false, 32.0).clicked() {
+                self.open_about(ctx);
             }
             if theme::pill(ui, Icon::Compact, &t("top.capture_bar"), false)
                 .on_hover_text(t("top.capture_bar.tip"))

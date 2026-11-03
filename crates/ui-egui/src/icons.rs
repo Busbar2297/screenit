@@ -47,6 +47,7 @@ pub enum Icon {
     Cursor,
     Folder,
     Gear,
+    Info,
 }
 
 pub fn paint(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
@@ -328,6 +329,11 @@ pub fn paint(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
                     st,
                 );
             }
+        }
+        Icon::Info => {
+            p.circle_stroke(at(0.5, 0.5), s * 0.4, st);
+            p.circle_filled(at(0.5, 0.3), s * 0.07, c);
+            line(&[(0.5, 0.46), (0.5, 0.74)]);
         }
         Icon::Record => {
             p.circle_stroke(at(0.5, 0.5), s * 0.42, st);
