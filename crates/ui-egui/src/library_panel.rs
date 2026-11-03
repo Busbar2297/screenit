@@ -271,6 +271,7 @@ impl UiApp {
             }
         } else if self.run("library.open", json!({"id": id})).is_some() {
             self.video = None;
+            self.fit = true;
             self.view = View::Editor;
             self.status = "Opened from library".into();
         }
@@ -403,11 +404,16 @@ impl UiApp {
     }
 
     /// Transport bar for the loaded video: play/pause, scrubber, frame export.
+    /// The picture comes from `video.frame`; the sound is a separate `video.audio.*` player so
+    /// seeking a frame does not move the audio clock.
     pub(crate) fn video_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let Some(v) = self.video.as_mut() else { return };
+        let was_playing = v.playing;
         v.tick(Instant::now());
         let mut pos = v.pos_ms;
         let mut close = false;
+        let mut play_at: Option<u64> = None;
+        let mut pause = was_playing && !v.playing;
         ui.horizontal(|ui| {
             let (icon, tip) = if v.playing {
                 (Icon::Pause, "Pause")
@@ -419,6 +425,12 @@ impl UiApp {
                     v.pos_ms = 0;
                 }
                 v.playing = !v.playing;
+                if v.playing {
+                    play_at = Some(v.pos_ms);
+                    pause = false;
+                } else {
+                    pause = true;
+                }
             }
             let max = v.duration_ms - 1;
             if ui
@@ -427,6 +439,8 @@ impl UiApp {
             {
                 v.pos_ms = pos;
                 v.playing = false;
+                play_at = None;
+                pause = true;
             }
             if theme::icon_button(ui, Icon::Close, "Close video", false, 32.0).clicked() {
                 close = true;
@@ -438,8 +452,14 @@ impl UiApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
         if close {
+            let _ = self.run("video.audio.stop", json!({}));
             self.video = None;
             return;
+        }
+        if let Some(ms) = play_at {
+            let _ = self.run("video.audio.play", json!({"path": &path, "ms": ms}));
+        } else if pause {
+            let _ = self.run("video.audio.pause", json!({}));
         }
         if stale {
             if self
@@ -451,6 +471,7 @@ impl UiApp {
                 }
             } else if let Some(v) = self.video.as_mut() {
                 v.playing = false;
+                let _ = self.run("video.audio.pause", json!({}));
             }
         }
     }

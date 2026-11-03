@@ -17,6 +17,8 @@ pub struct Overlay {
     pub record: bool,
     /// Picking the area to read text from.
     pub text: bool,
+    /// Picking the area to capture by scrolling it.
+    pub scroll: bool,
 }
 
 impl Overlay {
@@ -36,6 +38,21 @@ impl Overlay {
             focused: false,
             record: false,
             text: false,
+            scroll: false,
+        }
+    }
+}
+
+impl Overlay {
+    pub fn mode(&self) -> crate::OverlayMode {
+        if self.text {
+            crate::OverlayMode::Text
+        } else if self.record {
+            crate::OverlayMode::Record
+        } else if self.scroll {
+            crate::OverlayMode::Scroll
+        } else {
+            crate::OverlayMode::Capture
         }
     }
 }
@@ -71,8 +88,14 @@ pub fn drive(app: &mut UiApp, ctx: &egui::Context) {
     ctx.request_repaint();
     match outcome {
         Outcome::None => app.overlay = Some(ov),
-        Outcome::Cancel => app.finish_overlay(ctx, ov.frozen, None, ov.record, ov.text),
-        Outcome::Pick(sel) => app.finish_overlay(ctx, ov.frozen, Some(sel), ov.record, ov.text),
+        Outcome::Cancel => {
+            let mode = ov.mode();
+            app.finish_overlay(ctx, ov.frozen, None, mode)
+        }
+        Outcome::Pick(sel) => {
+            let mode = ov.mode();
+            app.finish_overlay(ctx, ov.frozen, Some(sel), mode)
+        }
     }
 }
 
@@ -201,6 +224,8 @@ fn draw(ov: &mut Overlay, ui: &mut egui::Ui) -> Outcome {
     {
         let text = if ov.record {
             "Record: drag an area  ·  Click a window  ·  Enter for the whole screen  ·  Esc to cancel"
+        } else if ov.scroll {
+            "Scrolling capture: drag the area that scrolls  ·  Click a window  ·  Esc to cancel"
         } else {
             "Drag to select a region  ·  Click a window  ·  Esc or right-click to cancel"
         };

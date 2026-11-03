@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.5
+
+- Zoom in, zoom out and fit are in the editor top bar, including when you open an image from the library. Zoom goes down to 2% so a very tall capture can still be zoomed out.
+- The taskbar button, Alt-Tab and the Start menu and desktop shortcuts use the screenIt icon.
+
+## 0.2.4
+
+- Esc now stops a scrolling capture even when you tap it quickly. A long capture also stops at a size limit instead of growing without end.
+- Opening a very tall image no longer crashes: the editor splits large images into tiles, and you can zoom out further.
+- The installer adds a Desktop shortcut and puts the Start menu shortcut directly in the Start list (pass DESKTOP=0 to skip the desktop one).
+
+## 0.2.3
+
+- Scrolling capture from the capture bar: pick a window or a region and screenIt scrolls and stitches the pages, keeping a sticky header and footer once.
+- Hide secrets: cover passwords, keys and tokens. A button in the editor, plus an optional automatic pass on every new capture (Settings, Privacy, off by default). An optional local LM Studio pass can catch secrets that are only words.
+- Videos play with their sound inside screenIt.
+- The Microphone and System audio switches follow the saved settings.
+
 ## 0.2.2
 
 - Arabic now reads right to left everywhere: letters join, Latin words such as "Print Screen" stay in order, and the capture button, status line, buttons, drop-downs, sidebar, library cards and the notification are anchored on the right.

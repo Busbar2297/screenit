@@ -6,9 +6,11 @@ use crate::{CmdResult, CommandError, CommandSpec, Session, always, need_screen};
 use screenit_capture::{self as cap, CaptureOutput, Effects};
 use screenit_doc::Metadata;
 use screenit_geom::{Point, Rect};
+use screenit_raster::Raster;
 use serde_json::{Value, json};
 
 const MAX_PAGES: u32 = 200;
+const MAX_SCROLL_PIXELS: u64 = 100_000_000;
 
 fn plain_opts(a: &Args<'_>, s: &Session) -> Result<Opts, CommandError> {
     Ok(Opts {
@@ -20,6 +22,69 @@ fn plain_opts(a: &Args<'_>, s: &Session) -> Result<Opts, CommandError> {
 }
 
 /// Scroll the content under the region repeatedly until the picture stops changing, then stitch.
+/// Scroll the content under the middle of `r` once, wait for it to settle, and return the new
+/// picture, or `None` when it equals `prev` (the end of the content).
+fn scroll_once(
+    s: &mut Session,
+    r: Rect,
+    notches: i32,
+    settle: u32,
+    prev: Option<&Raster>,
+) -> Result<Option<Raster>, CommandError> {
+    let src = s.screen()?;
+    let centre = Point::new(r.x + r.w as i32 / 2, r.y + r.h as i32 / 2);
+    src.scroll(centre, notches).map_err(CommandError::failed)?;
+    s.services.clock.sleep_ms(settle);
+    // Wait until the picture is stable (smooth scrolling / delayed repaint) before using it.
+    let mut next = src.grab(r).map_err(CommandError::failed)?;
+    for _ in 0..8 {
+        s.services.clock.sleep_ms((settle / 2).max(20));
+        let again = src.grab(r).map_err(CommandError::failed)?;
+        let stable = next.mean_abs_diff(&again).is_some_and(|d| d < 0.001);
+        next = again;
+        if stable {
+            break;
+        }
+    }
+    let same = prev
+        .and_then(|f| f.mean_abs_diff(&next))
+        .is_some_and(|d| d < 0.01);
+    Ok(if same { None } else { Some(next) })
+}
+
+/// One step of an interactive scrolling capture: scroll, grab, append. `end` is true when the
+/// content stopped moving (the frame is then not added).
+fn scroll_step(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["notches", "settle_ms"])?;
+    let notches = a.opt_i32("notches")?.unwrap_or(3).clamp(1, 20);
+    let settle = a.opt_u32("settle_ms")?.unwrap_or(150).min(5_000);
+    let (r, count, last) = match s.scroll_frames.as_ref() {
+        Some((r, f)) => (*r, f.len(), f.last().cloned()),
+        None => {
+            return Err(CommandError::Failed(
+                "no scrolling capture in progress".into(),
+            ));
+        }
+    };
+    // Stop at a page count or a pixel budget (about 400 MB of RGBA) so a very long page cannot
+    // exhaust memory when it is stitched, shown and saved.
+    let pixels: u64 = s.scroll_frames.as_ref().map_or(0, |(_, f)| {
+        f.iter()
+            .map(|r| u64::from(r.width()) * u64::from(r.height()))
+            .sum()
+    });
+    if count >= MAX_PAGES as usize || pixels >= MAX_SCROLL_PIXELS {
+        return Ok(json!({"frames": count, "end": true}));
+    }
+    let next = scroll_once(s, r, notches, settle, last.as_ref())?;
+    let end = next.is_none();
+    if let (Some(f), Some((_, frames))) = (next, s.scroll_frames.as_mut()) {
+        frames.push(f);
+    }
+    let frames = s.scroll_frames.as_ref().map_or(0, |(_, f)| f.len());
+    Ok(json!({"frames": frames, "end": end}))
+}
+
 fn scroll_auto(s: &mut Session, p: &Value) -> CmdResult {
     let a = Args::new(
         p,
@@ -40,29 +105,11 @@ fn scroll_auto(s: &mut Session, p: &Value) -> CmdResult {
     let notches = a.opt_i32("notches")?.unwrap_or(3).clamp(1, 20);
     let settle = a.opt_u32("settle_ms")?.unwrap_or(150).min(5_000);
     let src = s.screen()?;
-    let centre = Point::new(r.x + r.w as i32 / 2, r.y + r.h as i32 / 2);
     let mut frames = vec![src.grab(r).map_err(CommandError::failed)?];
     for _ in 1..max_pages {
-        src.scroll(centre, notches).map_err(CommandError::failed)?;
-        s.services.clock.sleep_ms(settle);
-        // Wait until the picture is stable (smooth scrolling / delayed repaint) before using it.
-        let mut next = src.grab(r).map_err(CommandError::failed)?;
-        for _ in 0..8 {
-            s.services.clock.sleep_ms((settle / 2).max(20));
-            let again = src.grab(r).map_err(CommandError::failed)?;
-            let stable = next.mean_abs_diff(&again).is_some_and(|d| d < 0.001);
-            next = again;
-            if stable {
-                break;
-            }
-        }
-        let same = frames
-            .last()
-            .and_then(|f| f.mean_abs_diff(&next))
-            .is_some_and(|d| d < 0.01);
-        if same {
+        let Some(next) = scroll_once(s, r, notches, settle, frames.last())? else {
             break; // reached the end of the content
-        }
+        };
         frames.push(next);
     }
     let pages = frames.len();
@@ -337,6 +384,15 @@ pub fn specs() -> Vec<CommandSpec> {
             params: r#"{"x","y","w","h","max_pages"?:int,"notches"?:int,"settle_ms"?:int,"horizontal"?:bool,"clipboard"?:bool}"#,
             enabled: need_screen,
             run: scroll_auto,
+        },
+        CommandSpec {
+            id: "capture.scroll.step",
+            label: "Scrolling Capture Step",
+            menu: "Capture",
+            shortcut: "",
+            params: r#"{"notches"?:int,"settle_ms"?:int}"#,
+            enabled: need_screen,
+            run: scroll_step,
         },
         CommandSpec {
             id: "capture.object",

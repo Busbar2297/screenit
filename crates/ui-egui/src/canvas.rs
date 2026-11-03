@@ -18,14 +18,14 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
         let k = ((avail.x - margin * 2.0) / img.x.max(1.0))
             .min((avail.y - margin * 2.0) / img.y.max(1.0));
         app.zoom = if k.is_finite() {
-            k.clamp(0.1, 1.0)
+            k.clamp(0.02, 1.0)
         } else {
             1.0
         };
     }
     let (wheel, ctrl) = ui.input(|i| (i.smooth_scroll_delta.y, i.modifiers.command));
     if ctrl && wheel != 0.0 && ui.rect_contains_pointer(ui.max_rect()) {
-        app.zoom = (app.zoom * (1.0 + wheel * 0.002)).clamp(0.1, 8.0);
+        app.zoom = (app.zoom * (1.0 + wheel * 0.002)).clamp(0.02, 8.0);
         app.fit = false;
     }
     let scale = app.zoom / ppp;
@@ -43,12 +43,7 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
         let painter = ui.painter_at(outer);
         crate::chrome::document_frame(&painter, img_rect);
         let origin = img_rect.min;
-        painter.image(
-            tex.id(),
-            img_rect,
-            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-            Color32::WHITE,
-        );
+        tex.paint(&painter, img_rect);
         if resp.hovered() && app.tool != Tool::Select {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }

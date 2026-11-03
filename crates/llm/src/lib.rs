@@ -125,7 +125,42 @@ pub fn parse_models(body: &str) -> Result<Vec<String>, CaptureError> {
         .collect())
 }
 
+/// Longest prompt sent for a text completion.
+const MAX_PROMPT: usize = 60_000;
+
+/// Chat-completions body for a text-only prompt.
+pub fn text_body(prompt: &str, cfg: &LlmConfig) -> Value {
+    let prompt: String = prompt.chars().take(MAX_PROMPT).collect();
+    let mut body = json!({
+        "temperature": 0,
+        "max_tokens": 2048,
+        "messages": [{"role": "user", "content": prompt}],
+    });
+    if !cfg.model.trim().is_empty() {
+        body["model"] = json!(cfg.model.trim());
+    }
+    body
+}
+
 impl LlmOcr for LmStudio {
+    fn complete_text(&self, prompt: &str, cfg: &LlmConfig) -> Result<String, CaptureError> {
+        let url = format!("{}/chat/completions", base_url(cfg)?);
+        let body = text_body(prompt, cfg).to_string();
+        let mut resp = agent(cfg)
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &auth(cfg))
+            .send(&body)
+            .map_err(|e| err("request", e))?;
+        let text = resp
+            .body_mut()
+            .with_config()
+            .limit(MAX_RESPONSE)
+            .read_to_string()
+            .map_err(|e| err("read", e))?;
+        parse_reply(&text)
+    }
+
     fn transcribe(&self, image: &Raster, cfg: &LlmConfig) -> Result<String, CaptureError> {
         let url = format!("{}/chat/completions", base_url(cfg)?);
         let body = request_body(image, cfg)?.to_string();
@@ -243,6 +278,19 @@ mod tests {
         assert!(req.starts_with("POST /v1/chat/completions"));
         assert!(req.contains("data:image/png;base64,"));
         assert!(req.contains("qwen2-vl"));
+    }
+
+    #[test]
+    fn completes_text_without_an_image() {
+        let reply = json!({"choices":[{"message":{"content":" [] "}}]}).to_string();
+        let (url, h) = serve(vec![(200, reply, 0)]);
+        let out = LmStudio.complete_text("find secrets", &cfg(&url)).unwrap();
+        assert_eq!(out, "[]");
+        let req = &h.join().unwrap()[0];
+        assert!(req.starts_with("POST /v1/chat/completions"));
+        assert!(req.contains("find secrets"));
+        assert!(!req.contains("image_url"));
+        assert!(LmStudio.complete_text("x", &cfg("ftp://nope")).is_err());
     }
 
     #[test]

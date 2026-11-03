@@ -9,9 +9,24 @@ pub struct Notice {
     pub title: String,
     pub detail: String,
     pub until: Instant,
+    /// Progress notice shown over a capture: excluded from screenshots, no Dismiss button.
+    pub progress: bool,
 }
 
+/// Window title of the progress notice (unique so it can be found and hidden from capture).
+const PROGRESS_TITLE: &str = "screenIt scrolling";
+
 impl Notice {
+    /// "Scrolling capture: page N" while a scrolling capture runs.
+    pub fn scrolling(page: usize) -> Self {
+        Self {
+            title: screenit_i18n::tf("toast.scrolling", &[("n", &page.to_string())]),
+            detail: screenit_i18n::t("toast.scrolling.detail"),
+            until: Instant::now() + Duration::from_secs(3),
+            progress: true,
+        }
+    }
+
     /// `saved` is true when the text was also written into the library.
     pub fn copied(detail: &str, saved: bool) -> Self {
         let key = if saved {
@@ -24,6 +39,7 @@ impl Notice {
             title: screenit_i18n::t(key),
             detail: screenit_i18n::display(&preview),
             until: Instant::now() + Duration::from_secs(6),
+            progress: false,
         }
     }
 }
@@ -44,7 +60,11 @@ pub fn drive(app: &mut UiApp, ctx: &egui::Context) {
             .unwrap_or((1280.0, 800.0))
     });
     let builder = ViewportBuilder::default()
-        .with_title("screenIt")
+        .with_title(if notice.progress {
+            PROGRESS_TITLE
+        } else {
+            "screenIt"
+        })
         .with_decorations(false)
         .with_always_on_top()
         .with_transparent(true)
@@ -73,10 +93,16 @@ pub fn drive(app: &mut UiApp, ctx: &egui::Context) {
                                 .color(Color32::from_rgb(180, 186, 204)),
                         );
                     }
-                    dismiss = ui.button(screenit_i18n::t("toast.dismiss")).clicked();
+                    if !notice.progress {
+                        dismiss = ui.button(screenit_i18n::t("toast.dismiss")).clicked();
+                    }
                 });
             });
     });
+    if notice.progress {
+        // Keep the notice out of the pictures being taken (no-op until the window exists).
+        screenit_platform::window::exclude_from_capture(PROGRESS_TITLE);
+    }
     if dismiss {
         app.toast = None;
     }

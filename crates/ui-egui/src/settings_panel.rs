@@ -7,12 +7,49 @@ use crate::{UiApp, View};
 use eframe::egui;
 use screenit_engine::settings::Settings;
 use screenit_i18n::{t, tf};
+use serde_json::json;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
     General,
     Recording,
     Ocr,
+    Privacy,
+}
+
+fn privacy_form(ui: &mut egui::Ui, s: &mut Settings) {
+    ui.heading(t("privacy.title"));
+    ui.add_space(8.0);
+    let p = &mut s.privacy;
+    row(ui, &t("privacy.auto"), |ui| {
+        ui.checkbox(&mut p.auto_hide_secrets, "");
+    });
+    ui.label(
+        egui::RichText::new(t("privacy.auto.hint"))
+            .size(11.5)
+            .color(MUTED),
+    );
+    ui.add_space(8.0);
+    row(ui, &t("privacy.llm"), |ui| {
+        ui.checkbox(&mut p.use_llm, "");
+    });
+    ui.label(
+        egui::RichText::new(t("privacy.llm.hint"))
+            .size(11.5)
+            .color(MUTED),
+    );
+    ui.add_space(8.0);
+    row(ui, &t("privacy.mode"), |ui| {
+        combo(
+            ui,
+            "privacy_mode",
+            &mut p.mode,
+            &opts(&[
+                ("pixelate", t("privacy.mode.pixelate")),
+                ("blur", t("privacy.mode.blur")),
+            ]),
+        );
+    });
 }
 
 fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[(String, String)]) {
@@ -88,6 +125,7 @@ impl UiApp {
                         (Tab::General, "settings.cat.general"),
                         (Tab::Recording, "settings.cat.recording"),
                         (Tab::Ocr, "settings.cat.ocr"),
+                        (Tab::Privacy, "settings.cat.privacy"),
                     ] {
                         if ui.selectable_label(tab == tb, t(key)).clicked() {
                             tab = tb;
@@ -106,13 +144,19 @@ impl UiApp {
                         Tab::General => self.general_form(ui, &mut s),
                         Tab::Recording => recording_form(ui, &mut s),
                         Tab::Ocr => self.ocr_form(ui, &mut s),
+                        Tab::Privacy => privacy_form(ui, &mut s),
                     });
                 });
             });
-        if s != self.session.settings
-            && let Err(e) = self.session.replace_settings(s)
-        {
-            self.status = format!("settings: {e}");
+        if s != self.session.settings {
+            match self.session.replace_settings(s) {
+                Ok(()) => {
+                    let r = &self.session.settings.recording;
+                    self.rec_opts.mic = r.microphone;
+                    self.rec_opts.system = r.system_audio;
+                }
+                Err(e) => self.status = format!("settings: {e}"),
+            }
         }
     }
 
@@ -390,6 +434,32 @@ impl UiApp {
                 Err(e) => self.llm_msg = tf("ocr.failed", &[("error", &e)]),
             }
         }
+        if let Some(rx) = &self.secret_rx
+            && let Ok(r) = rx.try_recv()
+        {
+            self.secret_rx = None;
+            self.status = match r {
+                Ok(scan) if scan.found.is_empty() => scan
+                    .warning
+                    .map(|w| tf("status.hide_failed", &[("error", &w)]))
+                    .unwrap_or_else(|| t("status.no_secrets")),
+                Ok(scan) => {
+                    let rects: Vec<[i32; 4]> = scan
+                        .found
+                        .iter()
+                        .map(|f| [f.rect.x, f.rect.y, f.rect.w as i32, f.rect.h as i32])
+                        .collect();
+                    match self.session.dispatch(
+                        "editor.redact.apply",
+                        &json!({"rects": rects, "mode": self.session.settings.privacy.mode}),
+                    ) {
+                        Ok(_) => tf("status.hid_secrets", &[("n", &rects.len().to_string())]),
+                        Err(e) => tf("status.hide_failed", &[("error", &e.to_string())]),
+                    }
+                }
+                Err(e) => tf("status.hide_failed", &[("error", &e)]),
+            };
+        }
         if let Some(rx) = &self.ocr_rx
             && let Ok(r) = rx.try_recv()
         {
@@ -415,6 +485,27 @@ impl UiApp {
                 Err(e) => self.status = tf("status.ocr_failed", &[("error", &e)]),
             }
         }
+    }
+
+    /// Find secrets in the open document on a worker thread, then cover them with editable
+    /// blur objects (one undo step).
+    pub(crate) fn hide_document_secrets(&mut self, ctx: &egui::Context) {
+        let Some(doc) = self.session.doc.as_ref() else {
+            return;
+        };
+        if self.secret_rx.is_some() {
+            return;
+        }
+        let image = screenit_compose::flatten(doc);
+        let job = self.session.secret_scan(Vec::new(), None);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.secret_rx = Some(rx);
+        self.status = t("status.hiding");
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(job.run(&image).map_err(|e| e.to_string()));
+            ctx.request_repaint();
+        });
     }
 
     /// Recognise the text in the open document on a worker thread and copy it to the clipboard.

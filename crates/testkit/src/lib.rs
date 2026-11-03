@@ -72,6 +72,8 @@ pub struct FakeScreen {
     pub cursor: Option<Point>,
     /// Optional scrollable viewport: grabbing exactly iew returns content at the current offset.
     pub scroller: Mutex<Option<FakeScroller>>,
+    /// Rectangles reported as password fields.
+    pub secrets: Vec<Rect>,
 }
 
 pub struct FakeScroller {
@@ -88,7 +90,12 @@ impl FakeScreen {
             windows: Vec::new(),
             cursor: None,
             scroller: Mutex::new(None),
+            secrets: Vec::new(),
         }
+    }
+    pub fn with_secret_field(mut self, rect: Rect) -> Self {
+        self.secrets.push(rect);
+        self
     }
     pub fn with_window(mut self, id: u64, title: &str, rect: Rect) -> Self {
         self.windows.push(WindowInfo {
@@ -164,6 +171,13 @@ impl ScreenSource for FakeScreen {
     }
     fn object_at(&self, p: Point) -> Option<WindowInfo> {
         self.windows.iter().find(|w| w.rect.contains(p)).cloned()
+    }
+    fn secret_fields(&self, rect: Rect) -> Vec<Rect> {
+        self.secrets
+            .iter()
+            .filter(|r| r.intersect(&rect).is_some())
+            .copied()
+            .collect()
     }
     fn menus(&self) -> Vec<WindowInfo> {
         self.windows
@@ -372,6 +386,22 @@ impl screenit_capture::LlmOcr for FakeLlm {
 }
 
 /// OCR fake that returns fixed lines regardless of the image.
+/// A language-model server that is down: every call fails.
+pub struct FakeLlmDown;
+
+impl screenit_capture::LlmOcr for FakeLlmDown {
+    fn transcribe(
+        &self,
+        _: &Raster,
+        _: &screenit_capture::LlmConfig,
+    ) -> Result<String, CaptureError> {
+        Err(CaptureError::Platform("server down".into()))
+    }
+    fn models(&self, _: &screenit_capture::LlmConfig) -> Result<Vec<String>, CaptureError> {
+        Err(CaptureError::Platform("server down".into()))
+    }
+}
+
 pub struct FakeOcr(pub Vec<String>);
 
 impl screenit_capture::Ocr for FakeOcr {

@@ -8,6 +8,7 @@ mod icons;
 mod library_panel;
 mod overlay;
 mod recording;
+mod scrolling;
 mod settings_panel;
 mod theme;
 mod toast;
@@ -109,7 +110,7 @@ pub(crate) enum View {
     Settings,
 }
 
-const COMPACT_SIZE: [f32; 2] = [906.0, 252.0];
+const COMPACT_SIZE: [f32; 2] = [1000.0, 252.0];
 const EDITOR_SIZE: [f32; 2] = [1280.0, 820.0];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -119,15 +120,29 @@ pub(crate) enum Pending {
     RecordOverlay,
     /// The overlay, picking the area to read text from.
     TextOverlay,
+    /// The overlay, picking the area to capture by scrolling.
+    ScrollOverlay,
     Fullscreen,
     Preset,
+}
+
+/// What the capture overlay's pick is for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum OverlayMode {
+    Capture,
+    Record,
+    Text,
+    Scroll,
 }
 
 impl Pending {
     fn is_overlay(self) -> bool {
         matches!(
             self,
-            Pending::Overlay | Pending::RecordOverlay | Pending::TextOverlay
+            Pending::Overlay
+                | Pending::RecordOverlay
+                | Pending::TextOverlay
+                | Pending::ScrollOverlay
         )
     }
 }
@@ -135,7 +150,7 @@ impl Pending {
 pub struct UiApp {
     pub(crate) session: Session,
     events: Receiver<UiEvent>,
-    pub(crate) tex: Option<egui::TextureHandle>,
+    pub(crate) tex: Option<DocTex>,
     doc_rev: u64,
     tex_rev: u64,
     pub(crate) tool: Tool,
@@ -157,10 +172,14 @@ pub struct UiApp {
     /// Physical window position to return to after a capture / when leaving the tray.
     saved_pos: Option<(i32, i32)>,
     home: Option<(i32, i32)>,
+    /// Retries for putting the exe icon on the taskbar button once the window exists.
+    icon_tries: u8,
     /// Fit the document to the canvas on the next frame (new capture, Ctrl+0).
     pub(crate) fit: bool,
     pub(crate) rec_opts: recording::RecOptions,
     recording: Option<recording::RecUi>,
+    /// A scrolling capture being taken, one step per frame.
+    scroll: Option<scrolling::ScrollRun>,
     /// Last file written (capture, export, recording): drives "Show in folder".
     pub(crate) last_saved: Option<std::path::PathBuf>,
     /// The dark title bar has been applied to the native window.
@@ -173,6 +192,8 @@ pub struct UiApp {
     pub(crate) llm_msg: String,
     pub(crate) llm_rx: Option<Receiver<Result<Vec<String>, String>>>,
     pub(crate) ocr_rx: Option<Receiver<Result<screenit_engine::OcrOutput, String>>>,
+    /// A Hide secrets scan running on a worker thread.
+    pub(crate) secret_rx: Option<Receiver<Result<screenit_engine::ScanResult, String>>>,
     pub(crate) settings_tab: settings_panel::Tab,
     /// Grabbed text opened from the library, shown instead of the canvas.
     pub(crate) reading: Option<String>,
@@ -183,6 +204,11 @@ pub struct UiApp {
 
 impl UiApp {
     pub fn new(session: Session, events: Receiver<UiEvent>) -> Self {
+        let rec_opts = recording::RecOptions {
+            mic: session.settings.recording.microphone,
+            system: session.settings.recording.system_audio,
+            ..recording::RecOptions::default()
+        };
         Self {
             session,
             events,
@@ -207,9 +233,11 @@ impl UiApp {
             video: None,
             saved_pos: None,
             home: None,
+            icon_tries: 0,
             fit: true,
-            rec_opts: recording::RecOptions::default(),
+            rec_opts,
             recording: None,
+            scroll: None,
             last_saved: None,
             framed: false,
             quit: false,
@@ -219,6 +247,7 @@ impl UiApp {
             llm_msg: String::new(),
             llm_rx: None,
             ocr_rx: None,
+            secret_rx: None,
             settings_tab: settings_panel::Tab::General,
             reading: None,
             toast: None,
@@ -337,15 +366,20 @@ impl UiApp {
                     self.show_capture(&v);
                 }
             }
-            Pending::Overlay | Pending::RecordOverlay | Pending::TextOverlay => match self
-                .session
-                .screen()
-                .map(|s| FrozenScreen::snapshot(s.as_ref()))
-            {
+            Pending::Overlay
+            | Pending::RecordOverlay
+            | Pending::TextOverlay
+            | Pending::ScrollOverlay => match self.session.screen().map(|s| {
+                FrozenScreen::snapshot_with(
+                    s.as_ref(),
+                    self.session.settings.privacy.auto_hide_secrets,
+                )
+            }) {
                 Ok(Ok(frozen)) => {
                     let mut ov = overlay::Overlay::new(ctx, Arc::new(frozen));
                     ov.record = what == Pending::RecordOverlay;
                     ov.text = what == Pending::TextOverlay;
+                    ov.scroll = what == Pending::ScrollOverlay;
                     self.overlay = Some(ov);
                     show = false;
                 }
@@ -369,15 +403,18 @@ impl UiApp {
         ctx: &egui::Context,
         frozen: Arc<FrozenScreen>,
         sel: Option<Selection>,
-        record: bool,
-        text: bool,
+        mode: OverlayMode,
     ) {
         self.overlay = None;
-        if text {
+        if mode == OverlayMode::Text {
             self.finish_text_pick(ctx, &frozen, sel);
             return;
         }
-        if record {
+        if mode == OverlayMode::Scroll {
+            self.begin_scroll(&frozen, sel);
+            return;
+        }
+        if mode == OverlayMode::Record {
             let rect = match sel {
                 Some(Selection::Region { rect }) => Some(rect),
                 Some(Selection::Window { id }) => frozen
@@ -460,24 +497,91 @@ impl UiApp {
         }
         self.tex_rev = self.doc_rev;
         let old_size = self.tex.as_ref().map(|t| t.size());
-        self.tex = self.session.doc.as_ref().map(|d| {
-            let img = screenit_compose::flatten(d);
-            let ci = egui::ColorImage::from_rgba_unmultiplied(
-                [img.width() as usize, img.height() as usize],
-                img.data(),
-            );
-            ctx.load_texture(
-                "document",
-                ci,
-                egui::TextureOptions {
-                    magnification: egui::TextureFilter::Nearest,
-                    minification: egui::TextureFilter::Linear,
-                    ..Default::default()
-                },
-            )
-        });
+        self.tex = self
+            .session
+            .doc
+            .as_ref()
+            .map(|d| DocTex::upload(ctx, &screenit_compose::flatten(d)));
         if self.tex.as_ref().map(|t| t.size()) != old_size {
             self.fit = true;
+        }
+    }
+}
+
+/// The flattened document on the GPU, cut into tiles so a very tall or wide image (a long
+/// scrolling capture) never exceeds the graphics card's texture size limit.
+#[derive(Clone)]
+pub(crate) struct DocTex {
+    size: [usize; 2],
+    /// Pixel origin of each tile plus its texture.
+    tiles: Vec<([usize; 2], egui::TextureHandle)>,
+}
+
+/// Longest side of one tile; every GL driver in use handles at least this.
+const TILE: usize = 4096;
+
+impl DocTex {
+    fn upload(ctx: &egui::Context, img: &screenit_raster::Raster) -> Self {
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let data = img.data();
+        let opts = egui::TextureOptions {
+            magnification: egui::TextureFilter::Nearest,
+            minification: egui::TextureFilter::Linear,
+            ..Default::default()
+        };
+        let tile = TILE.min(ctx.input(|i| i.max_texture_side)).max(64);
+        let mut tiles = Vec::new();
+        for y in (0..h).step_by(tile) {
+            for x in (0..w).step_by(tile) {
+                let (tw, th) = (tile.min(w - x), tile.min(h - y));
+                let mut px = Vec::with_capacity(tw * th * 4);
+                for row in y..y + th {
+                    let from = (row * w + x) * 4;
+                    if let Some(s) = data.get(from..from + tw * 4) {
+                        px.extend_from_slice(s);
+                    }
+                }
+                if px.len() != tw * th * 4 {
+                    continue;
+                }
+                let ci = egui::ColorImage::from_rgba_unmultiplied([tw, th], &px);
+                tiles.push((
+                    [x, y],
+                    ctx.load_texture(format!("document-{x}-{y}"), ci, opts),
+                ));
+            }
+        }
+        Self {
+            size: [w, h],
+            tiles,
+        }
+    }
+
+    pub(crate) fn size(&self) -> [usize; 2] {
+        self.size
+    }
+
+    pub(crate) fn size_vec2(&self) -> egui::Vec2 {
+        egui::vec2(self.size[0] as f32, self.size[1] as f32)
+    }
+
+    /// Paint the whole image into `rect`.
+    pub(crate) fn paint(&self, painter: &egui::Painter, rect: egui::Rect) {
+        let [w, h] = self.size;
+        if w == 0 || h == 0 {
+            return;
+        }
+        let k = egui::vec2(rect.width() / w as f32, rect.height() / h as f32);
+        for ([x, y], t) in &self.tiles {
+            let [tw, th] = t.size();
+            let min = rect.min + egui::vec2(*x as f32 * k.x, *y as f32 * k.y);
+            let r = egui::Rect::from_min_size(min, egui::vec2(tw as f32 * k.x, th as f32 * k.y));
+            painter.image(
+                t.id(),
+                r,
+                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
         }
     }
 }
@@ -561,6 +665,10 @@ impl eframe::App for UiApp {
             screenit_platform::window::dark_title_bar();
             self.framed = true;
         }
+        if self.icon_tries < 5 {
+            self.icon_tries += 1;
+            screenit_platform::window::apply_exe_icon();
+        }
         if self.start_hidden {
             self.start_hidden = false;
             self.send_to_tray();
@@ -587,6 +695,7 @@ impl eframe::App for UiApp {
         self.drain_events(ctx);
         self.poll_ocr_jobs();
         self.run_pending(ctx);
+        self.drive_scroll(ctx);
         if self.quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -692,10 +801,16 @@ pub fn run(
     start_hidden: bool,
     setup: impl FnOnce(Waker) -> Receiver<UiEvent> + 'static,
 ) -> eframe::Result {
+    let icon = screenit_platform::app_icon_rgba(256);
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("screenIt")
         .with_inner_size(COMPACT_SIZE)
-        .with_min_inner_size([560.0, 180.0]);
+        .with_min_inner_size([560.0, 180.0])
+        .with_icon(egui::IconData {
+            rgba: icon,
+            width: 256,
+            height: 256,
+        });
     if start_hidden {
         viewport = viewport.with_position([-32000.0, -32000.0]);
     }
@@ -766,4 +881,27 @@ pub(crate) fn column_layout() -> egui::Layout {
 pub(crate) fn user_locales_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("LOCALAPPDATA")
         .map(|p| std::path::PathBuf::from(p).join("screenIt").join("locales"))
+}
+
+#[cfg(test)]
+mod doc_tex_tests {
+    use super::*;
+
+    #[test]
+    fn tall_and_wide_images_are_cut_into_tiles_that_cover_every_pixel() {
+        let ctx = egui::Context::default();
+        let tile = ctx.input(|i| i.max_texture_side).min(TILE);
+        let (w, h) = (tile as u32 + 5, 2 * tile as u32 + 7);
+        let img = screenit_raster::Raster::new(w, h, [9, 9, 9, 255]).unwrap();
+        let t = DocTex::upload(&ctx, &img);
+        assert_eq!(t.size(), [w as usize, h as usize]);
+        assert_eq!(t.tiles.len(), 2 * 3);
+        let area: usize = t.tiles.iter().map(|(_, x)| x.size()[0] * x.size()[1]).sum();
+        assert_eq!(area, w as usize * h as usize);
+        assert!(
+            t.tiles
+                .iter()
+                .all(|(_, x)| x.size().iter().all(|s| *s <= tile))
+        );
+    }
 }

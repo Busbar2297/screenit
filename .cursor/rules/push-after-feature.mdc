@@ -1,0 +1,14 @@
+---
+description: After a feature or fix is implemented and tested, commit it and push to GitHub
+alwaysApply: true
+---
+
+# Push finished work
+
+When a feature or bug fix is done and its tests pass, commit it and push to `origin` (`main`) before the task ends.
+
+- Run the checks the change needs first: `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace`. Add the extra `cargo xtask` gates from `AGENTS.md` when the change touches commands, capture, or the UI.
+- One commit for the change. Subject in the existing style, about why. Do not commit secrets.
+- `git push` to the tracked branch. Never force-push, and never skip hooks.
+- Do not push when the tests fail, the tree does not build, or the user said not to publish this change.
+- Do not bump the version or make a GitHub release unless the user asked.

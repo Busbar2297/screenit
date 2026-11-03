@@ -8,6 +8,7 @@ use std::f32::consts::TAU;
 pub enum Icon {
     Capture,
     Fullscreen,
+    Scroll,
     Clipboard,
     Library,
     Editor,
@@ -99,6 +100,12 @@ pub fn paint(p: &Painter, icon: Icon, rect: Rect, c: Color32) {
             rrect(0.06, 0.14, 0.94, 0.74, 0.08);
             line(&[(0.36, 0.9), (0.64, 0.9)]);
             line(&[(0.5, 0.74), (0.5, 0.9)]);
+        }
+        Icon::Scroll => {
+            rrect(0.2, 0.06, 0.8, 0.94, 0.08);
+            line(&[(0.5, 0.26), (0.5, 0.74)]);
+            line(&[(0.38, 0.38), (0.5, 0.26), (0.62, 0.38)]);
+            line(&[(0.38, 0.62), (0.5, 0.74), (0.62, 0.62)]);
         }
         Icon::Clipboard => {
             rrect(0.16, 0.14, 0.84, 0.94, 0.08);

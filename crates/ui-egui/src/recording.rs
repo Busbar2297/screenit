@@ -84,6 +84,7 @@ fn fmt_time(ms: u64) -> String {
 impl UiApp {
     /// Toggle chips for the recording options (capture bar).
     pub(crate) fn record_options(&mut self, ui: &mut egui::Ui) {
+        let before = (self.rec_opts.mic, self.rec_opts.system);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let o = &mut self.rec_opts;
@@ -92,6 +93,14 @@ impl UiApp {
             chip(ui, Icon::Camera, "Webcam", &mut o.webcam);
             chip(ui, Icon::Cursor, "Cursor effects", &mut o.cursor);
         });
+        if before != (self.rec_opts.mic, self.rec_opts.system) {
+            let mut s = self.session.settings.clone();
+            s.recording.microphone = self.rec_opts.mic;
+            s.recording.system_audio = self.rec_opts.system;
+            if let Err(e) = self.session.replace_settings(s) {
+                self.status = format!("settings: {e}");
+            }
+        }
     }
 
     pub(crate) fn is_recording(&self) -> bool {

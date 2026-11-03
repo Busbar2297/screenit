@@ -23,6 +23,8 @@ mod library_cmds;
 pub mod mcp;
 mod ml_cmds;
 mod record_cmds;
+mod secrets;
+pub use secrets::{Found, ScanResult, SecretScan};
 pub mod settings;
 mod system_cmds;
 mod video_cmds;
@@ -105,6 +107,8 @@ pub struct Services {
     pub recorder: Option<RecorderFactory>,
     pub video: Option<Arc<dyn VideoReader>>,
     pub video_writer: Option<Arc<dyn screenit_record::VideoWriter>>,
+    /// Plays a recording's audio track in step with the in-app video transport.
+    pub player: Option<Arc<dyn screenit_record::TrackPlayer>>,
     pub ocr: Option<Arc<dyn screenit_capture::Ocr>>,
     pub llm: Option<Arc<dyn screenit_capture::LlmOcr>>,
     pub camera: Option<Arc<dyn screenit_record::CameraSource>>,
@@ -120,6 +124,7 @@ impl Default for Services {
             recorder: None,
             video: None,
             video_writer: None,
+            player: None,
             ocr: None,
             llm: None,
             camera: None,

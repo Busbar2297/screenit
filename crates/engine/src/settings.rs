@@ -91,6 +91,28 @@ impl Default for OcrSettings {
     }
 }
 
+/// Hide secrets (passwords, keys and tokens in captures).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrivacySettings {
+    /// Cover secrets in every new capture before it is copied or saved.
+    pub auto_hide_secrets: bool,
+    /// Also ask the language model (LM Studio) from the Hide secrets button.
+    pub use_llm: bool,
+    /// `pixelate` or `blur`.
+    pub mode: String,
+}
+
+impl Default for PrivacySettings {
+    fn default() -> Self {
+        Self {
+            auto_hide_secrets: false,
+            use_llm: false,
+            mode: "pixelate".into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -98,6 +120,7 @@ pub struct Settings {
     pub general: General,
     pub recording: RecordingSettings,
     pub ocr: OcrSettings,
+    pub privacy: PrivacySettings,
     /// `None` means the built-in presets.
     pub presets: Option<Vec<Preset>>,
 }
@@ -109,6 +132,7 @@ impl Default for Settings {
             general: General::default(),
             recording: RecordingSettings::default(),
             ocr: OcrSettings::default(),
+            privacy: PrivacySettings::default(),
             presets: None,
         }
     }
@@ -182,6 +206,9 @@ impl Settings {
         if one_of("", &self.ocr.language, &["auto", "en", "ar"]).is_err() {
             self.ocr.language = d.ocr.language.clone();
         }
+        if one_of("", &self.privacy.mode, &["pixelate", "blur"]).is_err() {
+            self.privacy.mode = d.privacy.mode.clone();
+        }
         if !(1..=120).contains(&self.recording.fps) {
             self.recording.fps = d.recording.fps;
         }
@@ -208,6 +235,7 @@ impl Settings {
             &["windows", "llm", "windows_then_llm"],
         )?;
         one_of("ocr.language", &self.ocr.language, &["auto", "en", "ar"])?;
+        one_of("privacy.mode", &self.privacy.mode, &["pixelate", "blur"])?;
         if !(1..=120).contains(&self.recording.fps) {
             return Err(CommandError::Params("recording.fps must be 1..=120".into()));
         }

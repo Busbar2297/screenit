@@ -280,6 +280,43 @@ fn automatic_scrolling_capture_stitches_the_whole_content() {
 }
 
 #[test]
+fn scroll_step_walks_to_the_end_and_finish_stitches() {
+    use screenit_geom::Rect;
+    use screenit_testkit::{FakeScreen, pattern};
+    use std::sync::Arc;
+    let content = pattern(80, 400);
+    let screen =
+        FakeScreen::new(200, 150).with_scroller(content.clone(), Rect::new(0, 0, 80, 100), 30);
+    let (mut s, _) = fake_session(10, 10);
+    s.services.screen = Some(Arc::new(screen));
+    assert!(
+        s.dispatch("capture.scroll.step", &json!({})).is_err(),
+        "needs begin first"
+    );
+    s.dispatch("capture.scroll.begin", &json!({"x":0,"y":0,"w":80,"h":100}))
+        .unwrap();
+    assert!(
+        s.dispatch("capture.scroll.step", &json!({"notches": 0.5}))
+            .is_err()
+    );
+    let mut steps = 0;
+    loop {
+        let r = s
+            .dispatch("capture.scroll.step", &json!({"notches":2}))
+            .unwrap();
+        steps += 1;
+        if r["end"] == true {
+            break;
+        }
+        assert!(steps < 100, "never reached the end");
+    }
+    let r = s
+        .dispatch("capture.scroll.finish", &json!({"clipboard": false}))
+        .unwrap();
+    assert_eq!(r["height"], 400);
+}
+
+#[test]
 fn object_menu_and_grab_text() {
     use screenit_geom::Rect;
     use screenit_testkit::{FakeOcr, FakeScreen};
@@ -609,6 +646,213 @@ fn smart_redact_blurs_only_sensitive_spans() {
     assert!(
         s.dispatch("editor.smart_redact", &json!({"kinds": ["zip"]}))
             .is_err()
+    );
+}
+
+struct FakeModel(&'static str);
+
+impl screenit_capture::LlmOcr for FakeModel {
+    fn transcribe(
+        &self,
+        _: &screenit_raster::Raster,
+        _: &screenit_capture::LlmConfig,
+    ) -> Result<String, screenit_capture::CaptureError> {
+        Ok(String::new())
+    }
+    fn complete_text(
+        &self,
+        prompt: &str,
+        _: &screenit_capture::LlmConfig,
+    ) -> Result<String, screenit_capture::CaptureError> {
+        assert!(prompt.contains("1: "), "lines are numbered from 1");
+        Ok(self.0.to_string())
+    }
+    fn models(
+        &self,
+        _: &screenit_capture::LlmConfig,
+    ) -> Result<Vec<String>, screenit_capture::CaptureError> {
+        Ok(vec![])
+    }
+}
+
+fn objects(s: &mut screenit_engine::Session) -> Vec<serde_json::Value> {
+    s.dispatch("doc.info", &json!({})).unwrap()["objects"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn hide_secrets_covers_secrets_not_prose_and_is_one_undo_step() {
+    use std::sync::Arc;
+    let (mut s, _) = fake_session(400, 80);
+    assert!(
+        s.dispatch("editor.hide_secrets", &json!({})).is_err(),
+        "needs a document"
+    );
+    s.services.ocr = Some(Arc::new(screenit_testkit::FakeOcr(vec![
+        "hello world, nothing to see".into(),
+        "Password: hunter2".into(),
+        "token ghp_16C7e42F292c6912E7710c838347Ae178B4a".into(),
+        "API key:".into(),
+        "sk-proj-abcdefghijklmnopqrstuv1234".into(),
+    ])));
+    s.dispatch("capture.fullscreen", &json!({})).unwrap();
+    let r = s.dispatch("editor.hide_secrets", &json!({})).unwrap();
+    assert_eq!(r["hidden"], 3, "{r}");
+    let objs = objects(&mut s);
+    assert_eq!(objs.len(), 3);
+    let ys: Vec<f64> = objs
+        .iter()
+        .map(|o| o["kind"]["rect"]["y"].as_f64().unwrap())
+        .collect();
+    assert!(
+        ys.iter().all(|y| *y >= 6.0),
+        "line 0 (prose) is untouched: {ys:?}"
+    );
+    s.dispatch("edit.undo", &json!({})).unwrap();
+    assert_eq!(objects(&mut s).len(), 0, "one history step");
+    assert!(
+        s.dispatch("editor.hide_secrets", &json!({"mode": "smudge"}))
+            .is_err()
+    );
+    assert!(
+        s.dispatch("editor.hide_secrets", &json!({"nope": 1}))
+            .is_err(),
+        "unknown params are rejected"
+    );
+}
+
+#[test]
+fn hide_secrets_label_on_its_own_line_covers_the_value_line() {
+    use std::sync::Arc;
+    let (mut s, _) = fake_session(300, 60);
+    s.services.ocr = Some(Arc::new(screenit_testkit::FakeOcr(vec![
+        "Password".into(),
+        "correct horse battery".into(),
+        "unrelated footer text".into(),
+    ])));
+    s.dispatch("capture.fullscreen", &json!({})).unwrap();
+    let r = s.dispatch("editor.hide_secrets", &json!({})).unwrap();
+    assert_eq!(r["hidden"], 1, "{r}");
+    let y = objects(&mut s)[0]["kind"]["rect"]["y"].as_f64().unwrap();
+    assert!(
+        (6.0..=11.0).contains(&y),
+        "value line 1 is covered, got y={y}"
+    );
+}
+
+#[test]
+fn hide_secrets_model_pass_is_optional_and_failures_only_warn() {
+    use std::sync::Arc;
+    let (mut s, _) = fake_session(300, 60);
+    s.services.ocr = Some(Arc::new(screenit_testkit::FakeOcr(vec![
+        "nothing here".into(),
+        "my pin is 8841 ok".into(),
+    ])));
+    s.services.llm = Some(Arc::new(FakeModel(
+        "```json\n[{\"line\": 2, \"text\": \"8841\"}, {\"line\": 99, \"text\": \"x\"}]\n```",
+    )));
+    s.dispatch("capture.fullscreen", &json!({})).unwrap();
+    let off = s.dispatch("editor.hide_secrets", &json!({})).unwrap();
+    assert_eq!(off["hidden"], 0, "the model is off by default");
+    let on = s
+        .dispatch("editor.hide_secrets", &json!({"llm": true}))
+        .unwrap();
+    assert_eq!(on["hidden"], 1, "{on}");
+    let x = objects(&mut s)[0]["kind"]["rect"]["x"].as_f64().unwrap();
+    assert!(x > 80.0, "only the number is covered, got x={x}");
+    // A model that errors must not fail the command.
+    s.services.llm = Some(Arc::new(screenit_testkit::FakeLlmDown));
+    let bad = s
+        .dispatch("editor.hide_secrets", &json!({"llm": true}))
+        .unwrap();
+    assert!(bad["warning"].as_str().is_some());
+}
+
+#[test]
+fn redact_apply_validates_rects_and_is_one_step() {
+    let (mut s, _) = fake_session(100, 40);
+    s.dispatch("capture.fullscreen", &json!({})).unwrap();
+    let r = s
+        .dispatch(
+            "editor.redact.apply",
+            &json!({"rects": [[1,1,20,10],[30,5,10,10]]}),
+        )
+        .unwrap();
+    assert_eq!(r["applied"], 2);
+    assert_eq!(objects(&mut s).len(), 2);
+    s.dispatch("edit.undo", &json!({})).unwrap();
+    assert_eq!(objects(&mut s).len(), 0);
+    for bad in [
+        json!({}),
+        json!({"rects": [[1,2,3]]}),
+        json!({"rects": [[1,2,0,5]]}),
+        json!({"rects": [[1,2,-3,5]]}),
+        json!({"rects": [["a",2,3,5]]}),
+        json!({"rects": [[1,2,3,5]], "mode": "x"}),
+    ] {
+        assert!(s.dispatch("editor.redact.apply", &bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn auto_hide_burns_secrets_into_the_clipboard_image_and_password_fields_too() {
+    use screenit_geom::Rect;
+    use screenit_testkit::{FakeOcr, FakeScreen};
+    use std::sync::Arc;
+    let lines = vec![
+        "hello".to_string(),
+        "Password: hunter2 and more".to_string(),
+    ];
+    let (mut s, clip) = fake_session(300, 60);
+    s.services.ocr = Some(Arc::new(FakeOcr(lines.clone())));
+    s.dispatch("capture.fullscreen", &json!({"clipboard": true}))
+        .unwrap();
+    let raw = clip.image.lock().unwrap().clone().unwrap();
+
+    s.settings.privacy.auto_hide_secrets = true;
+    let r = s
+        .dispatch("capture.fullscreen", &json!({"clipboard": true}))
+        .unwrap();
+    assert_eq!(r["secrets_hidden"], 1, "{r}");
+    let hidden = clip.image.lock().unwrap().clone().unwrap();
+    let differs = |img: &screenit_raster::Raster, y: std::ops::Range<i32>| {
+        y.flat_map(|y| (0..300).map(move |x| (x, y)))
+            .any(|(x, y)| img.get(x, y) != raw.get(x, y))
+    };
+    assert!(differs(&hidden, 12..18), "the secret line was pixelated");
+    assert!(!differs(&hidden, 0..4), "the first line is untouched");
+
+    // An OS-reported password field is covered even when OCR finds nothing.
+    let screen = FakeScreen::new(300, 60).with_secret_field(Rect::new(200, 30, 60, 14));
+    s.services.screen = Some(Arc::new(screen));
+    s.services.ocr = Some(Arc::new(FakeOcr(vec![])));
+    let r = s
+        .dispatch("capture.fullscreen", &json!({"clipboard": true}))
+        .unwrap();
+    assert_eq!(r["secrets_hidden"], 1, "{r}");
+    // Off by default: nothing is reported or changed.
+    s.settings.privacy.auto_hide_secrets = false;
+    let r = s.dispatch("capture.fullscreen", &json!({})).unwrap();
+    assert!(r.get("secrets_hidden").is_none());
+}
+
+#[test]
+fn privacy_settings_round_trip_and_reject_bad_mode() {
+    let (mut s, _) = fake_session(10, 10);
+    s.dispatch(
+        "settings.set",
+        &json!({"path": "privacy.auto_hide_secrets", "value": true}),
+    )
+    .unwrap();
+    assert!(s.settings.privacy.auto_hide_secrets);
+    assert!(
+        s.dispatch(
+            "settings.set",
+            &json!({"path": "privacy.mode", "value": "smudge"}),
+        )
+        .is_err()
     );
 }
 

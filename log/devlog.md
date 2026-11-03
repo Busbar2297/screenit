@@ -106,3 +106,23 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Status text, pills, capture button, combos, sidebar and toast now anchor on the right in Arabic.
 - Simplified Arabic was tried as primary font: several presentation forms are empty boxes. Tahoma stays.
 - Still open: a visual line that starts RTL but ends with a Latin letter would still be reversed; no such string ships.
+
+## 2026-11-03 - In-app video playback was silent
+- Critical: the player only asked for video frames (`video.frame`). The MP4's audio track was never opened, so the file was silent in the app and fine in any other player. `video.audio.play/pause/stop` now decode that track to 48 kHz stereo PCM on its own Media Foundation reader and play it through the default speakers (WASAPI render). Pause, scrub and close stop it; play starts again at the playhead.
+- Settings `recording.microphone` and `recording.system_audio` were saved by the Settings page and ignored by the capture bar, which always started with both on. The chips now load from settings and both sides write the same two fields. Defaults stay off. A saved file with both false will show the chips off, so a new recording has no mic or system audio until one of them is turned on. Files already recorded are unchanged.
+
+## 2026-11-03 - Scrolling capture UI and Hide secrets
+- Scrolling: the stitcher now keeps sticky headers/footers once, ignores the scrollbar strip and tolerates 1% pixel noise (caret blink). New `capture.scroll.step` scrolls once and grabs one frame; the capture bar's Scrolling tile (and top-bar icon) pick a window/region, then drive begin/step/finish with a progress toast excluded from capture. Esc stops; 30 pages max in the UI.
+- Hide secrets: `editor.hide_secrets` (scan + one-step editable blur objects) and `editor.redact.apply` (rects to blur objects). Finds: UI Automation password fields (`ScreenSource::secret_fields`, 300 ms deadline), OCR pattern scan (key/token formats, labelled values such as "Password: ...", masked runs), and an optional LM Studio text pass (`LlmOcr::complete_text`, `privacy.use_llm`, off by default).
+- `privacy.auto_hide_secrets` (off by default) burns the cover into the pixels in `finish()` before clipboard/save/library; never uses the model. Settings has a Privacy tab; the editor top bar has a Hide secrets pill (worker thread).
+- Still open: the scroll driver relies on wheel notches, so apps that ignore wheel input are not covered; secrets inside images with unusual fonts depend on OCR quality; translate the 21 new keys outside Arabic.
+
+## 2026-11-03 - Scrolling Esc, huge image crash, installer shortcuts (0.2.4)
+- Esc was only sampled between capture steps (~0.5 s each), so a tap was missed. `input::escape_pressed` also reads the "pressed since last call" bit.
+- A 30-page capture was 2560x27710; the editor uploaded it as one texture, beyond the GPU limit (egui asserts on max_texture_side). The canvas now uploads `DocTex` tiles (<= min(4096, max_texture_side)); zoom floor 2%. `capture.scroll.step` also ends at 100 Mpx of frames.
+- MSI: Start menu shortcut now sits in the Start list root; new Desktop shortcut (DESKTOP=0 skips).
+
+## 2026-11-03 - Editor zoom and taskbar icon (0.2.5)
+- Opening a library image lands in the editor already fitted, with zoom out / percent / zoom in / fit in the top bar (same controls as the side panel). Zoom floor is 2% in both places; the old side-panel floor of 10% turned a zoom-out click into a zoom-in on a tall capture.
+- screenit.exe had no icon resource, and the taskbar button is recreated when the window leaves the tray, so it showed a blank page. The mark is drawn in icon_glyph.rs, embedded as icon 1 by build.rs, set on the window, and the process AppUserModelID is screenIt.
+- Project rule: a finished, tested feature is committed and pushed to origin.

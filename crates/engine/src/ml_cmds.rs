@@ -18,7 +18,7 @@ fn ocr_of(s: &Session) -> Result<std::sync::Arc<dyn screenit_capture::Ocr>, Comm
 }
 
 /// Estimate the pixel rectangle of chars `[a, b)` within an OCR line (proportional glyph widths).
-fn span_rect(line: Rect, n_chars: usize, a: usize, b: usize, pad: i32) -> Rect {
+pub(crate) fn span_rect(line: Rect, n_chars: usize, a: usize, b: usize, pad: i32) -> Rect {
     let n = n_chars.max(1) as f32;
     let x0 = line.x + (line.w as f32 * a as f32 / n) as i32 - pad;
     let x1 = line.x + (line.w as f32 * b as f32 / n).ceil() as i32 + pad;

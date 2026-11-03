@@ -63,6 +63,11 @@ pub(crate) fn finish(s: &mut Session, out: CaptureOutput, o: &Opts) -> CmdResult
         mut metadata,
         region,
     } = out;
+    // Cover secrets first, in the raw pixels, so they never reach the clipboard or the file.
+    let (mut hidden, mut hide_warning) = (0usize, None);
+    if s.settings.privacy.auto_hide_secrets {
+        (hidden, hide_warning) = s.burn_secrets(&mut image, region);
+    }
     if o.cursor {
         if let (Some(src), Some(r)) = (s.services.screen.clone(), region) {
             if let Some(c) = src.cursor() {
@@ -120,7 +125,14 @@ pub(crate) fn finish(s: &mut Session, out: CaptureOutput, o: &Opts) -> CmdResult
         saved = json!(path.to_string_lossy());
     }
     s.new_document(doc);
-    Ok(json!({"width": w, "height": h, "region": region, "saved": saved}))
+    let mut result = json!({"width": w, "height": h, "region": region, "saved": saved});
+    if s.settings.privacy.auto_hide_secrets {
+        result["secrets_hidden"] = json!(hidden);
+        if let Some(w) = hide_warning {
+            result["secrets_warning"] = json!(w);
+        }
+    }
+    Ok(result)
 }
 
 fn run_selection(s: &mut Session, sel: Selection, o: &Opts) -> CmdResult {

@@ -29,6 +29,12 @@ const SWATCHES: [Color32; 10] = [
 ];
 
 impl UiApp {
+    /// Zoom the open image. 1.0 is one image pixel per screen pixel; the floor fits a very tall capture.
+    pub(crate) fn nudge_zoom(&mut self, factor: f32) {
+        self.zoom = (self.zoom * factor).clamp(0.02, 8.0);
+        self.fit = false;
+    }
+
     /// Snagit-style launcher: one big gradient Capture button plus quick-action tiles.
     pub(crate) fn capture_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         crate::h_row(ui, |ui| {
@@ -144,6 +150,19 @@ impl UiApp {
             }
             if theme::tile(
                 ui,
+                Icon::Scroll,
+                &t("bar.scroll"),
+                &t("bar.scroll.sub"),
+                ts,
+                true,
+            )
+            .on_hover_text(t("bar.scroll.tip"))
+            .clicked()
+            {
+                self.start_capture(ctx, Pending::ScrollOverlay, None);
+            }
+            if theme::tile(
+                ui,
                 Icon::Text,
                 &t("bar.grab_text"),
                 &t("bar.grab_text.sub"),
@@ -247,6 +266,9 @@ impl UiApp {
             {
                 self.start_capture(ctx, Pending::Fullscreen, None);
             }
+            if theme::icon_button(ui, Icon::Scroll, &t("top.scroll"), false, 32.0).clicked() {
+                self.start_capture(ctx, Pending::ScrollOverlay, None);
+            }
             if theme::icon_button(ui, Icon::Text, &t("top.grab_text"), false, 32.0).clicked() {
                 self.start_capture(ctx, Pending::TextOverlay, None);
             }
@@ -311,6 +333,37 @@ impl UiApp {
             {
                 self.reading = None;
                 self.grab_document_text(ctx);
+            }
+            if self.session.doc.is_some()
+                && theme::pill_enabled(
+                    ui,
+                    Icon::Blur,
+                    &t("top.hide_secrets"),
+                    false,
+                    self.secret_rx.is_none(),
+                )
+                .on_hover_text(t("top.hide_secrets.tip"))
+                .clicked()
+            {
+                self.hide_document_secrets(ctx);
+            }
+            if self.session.doc.is_some() && self.reading.is_none() && self.video.is_none() {
+                separator(ui);
+                if theme::icon_button(ui, Icon::ZoomOut, &t("top.zoom_out"), false, 32.0).clicked()
+                {
+                    self.nudge_zoom(1.0 / 1.25);
+                }
+                ui.label(
+                    egui::RichText::new(format!("{:.0}%", self.zoom * 100.0))
+                        .size(12.0)
+                        .color(MUTED),
+                );
+                if theme::icon_button(ui, Icon::ZoomIn, &t("top.zoom_in"), false, 32.0).clicked() {
+                    self.nudge_zoom(1.25);
+                }
+                if theme::icon_button(ui, Icon::Fit, &t("top.fit"), false, 32.0).clicked() {
+                    self.fit = true;
+                }
             }
             ui.with_layout(crate::far_layout(), |ui| {
                 let has_doc = self.session.doc.is_some();
@@ -499,20 +552,18 @@ impl UiApp {
         ui.add_space(16.0);
         theme::caption(ui, "View");
         ui.horizontal(|ui| {
-            if theme::icon_button(ui, Icon::ZoomOut, "Zoom out", false, 30.0).clicked() {
-                self.zoom = (self.zoom / 1.25).max(0.1);
-                self.fit = false;
+            if theme::icon_button(ui, Icon::ZoomOut, &t("top.zoom_out"), false, 30.0).clicked() {
+                self.nudge_zoom(1.0 / 1.25);
             }
             ui.label(egui::RichText::new(format!("{:.0}%", self.zoom * 100.0)).strong());
-            if theme::icon_button(ui, Icon::ZoomIn, "Zoom in", false, 30.0).clicked() {
-                self.zoom = (self.zoom * 1.25).min(8.0);
-                self.fit = false;
+            if theme::icon_button(ui, Icon::ZoomIn, &t("top.zoom_in"), false, 30.0).clicked() {
+                self.nudge_zoom(1.25);
             }
-            if theme::icon_button(ui, Icon::Fit, "Fit to window", false, 30.0).clicked() {
+            if theme::icon_button(ui, Icon::Fit, &t("top.fit"), false, 30.0).clicked() {
                 self.fit = true;
             }
         });
-        if ui.button("Actual size (100%)").clicked() {
+        if ui.button(t("top.actual")).clicked() {
             self.zoom = 1.0;
             self.fit = false;
         }

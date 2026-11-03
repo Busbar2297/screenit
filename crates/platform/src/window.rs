@@ -104,6 +104,56 @@ pub fn enter_tray() {
         ShowWindow(h, SW_SHOWNOACTIVATE);
     }
 }
+/// Put the executable's icon on the main window. A taskbar button created after a style change
+/// (tray hide/show) does not keep an icon that was only set earlier.
+pub fn apply_exe_icon() {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, ICON_BIG, ICON_SMALL, IMAGE_ICON, LoadImageW, SM_CXICON, SM_CXSMICON,
+        SM_CYICON, SM_CYSMICON, SendMessageW, WM_SETICON,
+    };
+    let Some(h) = main_window() else { return };
+    // SAFETY: the icon is resource 1 linked into this executable; a null result means it is absent.
+    unsafe {
+        let module = GetModuleHandleW(std::ptr::null());
+        // MAKEINTRESOURCE(1): the address is the resource id, not a pointer to memory.
+        let id = std::ptr::without_provenance::<u16>(1);
+        let big = LoadImageW(
+            module,
+            id,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXICON),
+            GetSystemMetrics(SM_CYICON),
+            0,
+        );
+        let small = LoadImageW(
+            module,
+            id,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            0,
+        );
+        if !big.is_null() {
+            SendMessageW(h, WM_SETICON, ICON_BIG as usize, big as isize);
+        }
+        if !small.is_null() {
+            SendMessageW(h, WM_SETICON, ICON_SMALL as usize, small as isize);
+        }
+    }
+}
+
+/// Tell the shell this process is screenIt, before any window exists, so the taskbar uses our icon.
+pub fn set_app_user_model_id() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    let id: Vec<u16> = "screenIt"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: a static wide string; the call only names this process to the shell.
+    unsafe { SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
+}
+
 /// Bring the main window back from the tray to (x, y) with a taskbar button and focus.
 pub fn leave_tray(x: i32, y: i32) {
     let Some(h) = main_window() else { return };
@@ -122,6 +172,7 @@ pub fn leave_tray(x: i32, y: i32) {
         ShowWindow(h, SW_RESTORE);
         SetForegroundWindow(h);
     }
+    apply_exe_icon();
 }
 
 /// Restore the main window if minimised and bring it to the foreground.

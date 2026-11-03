@@ -9,17 +9,21 @@ pub mod camera;
 mod clipboard;
 pub mod dup;
 pub mod hotkeys;
+mod icon_glyph;
 pub mod input;
 pub mod instance;
 pub mod keyhook;
 pub mod mf;
 mod ocr;
+mod playback;
 mod screen;
 pub mod shell;
+mod uia;
 mod util;
 pub mod window;
 
 pub use clipboard::Win32Clipboard;
+pub use icon_glyph::rgba as app_icon_rgba;
 pub use mf::{MfRecorder, MfVideoReader, MfVideoWriter};
 pub use ocr::WinOcr;
 pub use screen::Win32Screen;
@@ -66,6 +70,7 @@ pub fn services() -> Services {
         })),
         video: Some(Arc::new(MfVideoReader::new())),
         video_writer: Some(Arc::new(MfVideoWriter)),
+        player: Some(Arc::new(playback::MfTrackPlayer::new())),
         ..Services::default()
     }
 }

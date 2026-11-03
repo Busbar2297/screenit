@@ -72,7 +72,8 @@ group = "Capture"
 title = "Scrolling capture (manual, vertical/horizontal)"
 tier = 1
 status = "partial"
-commands = ["capture.scroll.begin", "capture.scroll.add_frame", "capture.scroll.finish"]
+commands = ["capture.scroll.begin", "capture.scroll.add_frame", "capture.scroll.step", "capture.scroll.finish"]
+tests = ["commands::scroll_step_walks_to_the_end_and_finish_stitches"]
 [[row]]
 id = "cap.sel.scrolling.auto"
 group = "Capture"
@@ -456,6 +457,22 @@ status = "partial"
 commands = ["editor.smart_redact"]
 tests = ["commands::smart_redact_blurs_only_sensitive_spans"]
 [[row]]
+id = "ed.hidesecrets"
+group = "Editor tools"
+title = "Hide secrets (passwords, keys, tokens; optional local model)"
+tier = 3
+status = "done"
+commands = ["editor.hide_secrets", "editor.redact.apply"]
+tests = ["commands::hide_secrets_covers_secrets_not_prose_and_is_one_undo_step", "commands::hide_secrets_label_on_its_own_line_covers_the_value_line", "commands::hide_secrets_model_pass_is_optional_and_failures_only_warn", "commands::redact_apply_validates_rects_and_is_one_step"]
+[[row]]
+id = "cap.autohidesecrets"
+group = "Capture"
+title = "Automatically hide secrets in new captures"
+tier = 3
+status = "done"
+commands = ["capture.fullscreen"]
+tests = ["commands::auto_hide_burns_secrets_into_the_clipboard_image_and_password_fields_too", "commands::privacy_settings_round_trip_and_reject_bad_mode"]
+[[row]]
 id = "ed.simplify"
 group = "Editor tools"
 title = "Simplify (ML)"
@@ -602,7 +619,7 @@ group = "Video editing"
 title = "Playback"
 tier = 2
 status = "partial"
-commands = ["video.frame", "video.probe"]
+commands = ["video.frame", "video.probe", "video.audio.play", "video.audio.pause", "video.audio.stop"]
 [[row]]
 id = "vid.trim"
 group = "Video editing"

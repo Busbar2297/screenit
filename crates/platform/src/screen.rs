@@ -343,6 +343,20 @@ impl ScreenSource for Win32Screen {
         Ok(())
     }
 
+    fn secret_fields(&self, rect: Rect) -> Vec<Rect> {
+        let ids: Vec<u64> = self
+            .windows()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|w| !w.minimized && w.rect.intersect(&rect).is_some())
+            .map(|w| w.id)
+            .collect();
+        crate::uia::password_fields(ids)
+            .into_iter()
+            .filter(|r| r.intersect(&rect).is_some())
+            .collect()
+    }
+
     fn object_at(&self, p: Point) -> Option<WindowInfo> {
         // SAFETY: plain window-handle queries.
         unsafe {

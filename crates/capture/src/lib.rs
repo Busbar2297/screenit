@@ -84,6 +84,10 @@ pub trait ScreenSource: Send + Sync {
     fn menus(&self) -> Vec<WindowInfo> {
         Vec::new()
     }
+    /// Password edit controls that intersect `rect`, as reported by the OS accessibility layer.
+    fn secret_fields(&self, _rect: Rect) -> Vec<Rect> {
+        Vec::new()
+    }
 }
 
 /// One recognised line of text with its bounding box in image coordinates.
@@ -123,6 +127,12 @@ pub struct LlmConfig {
 /// OCR through a vision language model. Returns plain text only (no boxes).
 pub trait LlmOcr: Send + Sync {
     fn transcribe(&self, image: &Raster, cfg: &LlmConfig) -> Result<String, CaptureError>;
+    /// A text-only completion (no image). Servers that cannot do it return an error.
+    fn complete_text(&self, _prompt: &str, _cfg: &LlmConfig) -> Result<String, CaptureError> {
+        Err(CaptureError::Platform(
+            "this language model cannot complete text".into(),
+        ))
+    }
     /// Model ids the server offers (also a connection test).
     fn models(&self, cfg: &LlmConfig) -> Result<Vec<String>, CaptureError>;
 }
@@ -355,22 +365,115 @@ pub fn composite_cursor(img: &mut Raster, origin: Point, cursor: CursorInfo) {
 
 // ---------------------------------------------------------------- scrolling stitcher
 
-fn row_eq(a: &Raster, ya: u32, b: &Raster, yb: u32) -> bool {
-    let w = a.width() as usize * 4;
-    let (ia, ib) = (ya as usize * w, yb as usize * w);
-    match (a.data().get(ia..ia + w), b.data().get(ib..ib + w)) {
-        (Some(x), Some(y)) => x == y,
-        _ => false,
+/// Width of the right-hand strip ignored when matching rows (a scrollbar whose thumb moves).
+const SCROLLBAR_STRIP: u32 = 24;
+/// Strips are only ignored on frames at least this wide.
+const STRIP_MIN_WIDTH: u32 = 120;
+
+/// Pixels (not bytes) compared per row: the width minus the scrollbar strip.
+fn cmp_width(w: u32) -> usize {
+    if w >= STRIP_MIN_WIDTH {
+        (w - SCROLLBAR_STRIP) as usize
+    } else {
+        w as usize
     }
+}
+
+/// Two rows match when at most 1% of the compared pixels differ (tolerates a caret or hover).
+fn row_eq(a: &Raster, ya: u32, b: &Raster, yb: u32) -> bool {
+    let stride = a.width() as usize * 4;
+    let n = cmp_width(a.width().min(b.width()));
+    let (ia, ib) = (ya as usize * stride, yb as usize * b.width() as usize * 4);
+    let (Some(x), Some(y)) = (a.data().get(ia..ia + n * 4), b.data().get(ib..ib + n * 4)) else {
+        return false;
+    };
+    let allowed = n / 100;
+    let mut bad = 0;
+    for (p, q) in x.chunks_exact(4).zip(y.chunks_exact(4)) {
+        if p != q {
+            bad += 1;
+            if bad > allowed {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn rows_vary(r: &Raster, y0: u32, n: u32) -> bool {
     (y0 + 1..y0 + n).any(|y| !row_eq(r, y0, r, y))
 }
 
-/// Stitch frames of a vertical scroll. Each new frame is matched against the bottom of the result by
-/// exact row comparison (screen captures are pixel-exact); identical frames are skipped.
+fn frames_equal(a: &Raster, b: &Raster) -> bool {
+    a.height() == b.height() && (0..a.height()).all(|y| row_eq(a, y, b, y))
+}
+
+/// Rows at the top and bottom that never move between consecutive frames (title bar, sticky
+/// header, footer). Pairs of identical frames carry no information and are skipped.
+fn fixed_bands(frames: &[Raster]) -> (u32, u32) {
+    let h = frames.first().map_or(0, Raster::height);
+    let (mut hdr, mut ftr) = (h, h);
+    let mut any = false;
+    for pair in frames.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        if a.height() != h || b.height() != h || frames_equal(a, b) {
+            continue;
+        }
+        any = true;
+        hdr = hdr.min((0..h).take_while(|&y| row_eq(a, y, b, y)).count() as u32);
+        ftr = ftr.min(
+            (0..h)
+                .take_while(|&i| row_eq(a, h - 1 - i, b, h - 1 - i))
+                .count() as u32,
+        );
+    }
+    if !any || hdr + ftr + 8 > h {
+        return (0, 0);
+    }
+    (hdr, ftr)
+}
+
+fn crop_rows(f: &Raster, y0: u32, rows: u32) -> Result<Raster, CaptureError> {
+    let mut out = Raster::new(f.width(), rows.max(1), [0; 4])?;
+    out.copy_from(f, 0, -(y0 as i32));
+    Ok(out)
+}
+
+/// Stitch frames of a vertical scroll. Rows that stay fixed between frames (header, footer) are
+/// kept once; the scrolling body is joined by matching each frame against the bottom of the
+/// result. Identical frames are skipped.
 pub fn stitch_vertical(frames: &[Raster]) -> Result<Raster, CaptureError> {
+    let first = frames.first().ok_or(CaptureError::Empty)?;
+    let (hdr, ftr) = fixed_bands(frames);
+    if hdr == 0 && ftr == 0 {
+        return stitch_body(frames);
+    }
+    let w = first.width();
+    let bodies: Result<Vec<Raster>, CaptureError> = frames
+        .iter()
+        .map(|f| {
+            if f.width() != w || f.height() != first.height() {
+                return Err(CaptureError::BadSelection("frames differ in size".into()));
+            }
+            crop_rows(f, hdr, f.height() - hdr - ftr)
+        })
+        .collect();
+    let body = stitch_body(&bodies?)?;
+    let last = frames.last().unwrap_or(first);
+    let mut out = Raster::new(w, hdr + body.height() + ftr, [0; 4])?;
+    out.copy_from(first, 0, 0);
+    out.copy_from(&body, 0, hdr as i32);
+    if ftr > 0 {
+        out.copy_from(
+            last,
+            0,
+            (hdr + body.height()) as i32 - (last.height() - ftr) as i32,
+        );
+    }
+    Ok(out)
+}
+
+fn stitch_body(frames: &[Raster]) -> Result<Raster, CaptureError> {
     let first = frames.first().ok_or(CaptureError::Empty)?;
     let w = first.width();
     let mut acc = first.clone();
@@ -635,12 +738,24 @@ pub struct FrozenScreen {
     windows: Vec<WindowInfo>,
     cursor: Option<CursorInfo>,
     foreground: Option<WindowInfo>,
+    secrets: Vec<Rect>,
 }
 
 impl FrozenScreen {
     pub fn snapshot(src: &dyn ScreenSource) -> Result<Self, CaptureError> {
+        Self::snapshot_with(src, false)
+    }
+
+    /// Like [`snapshot`](Self::snapshot); `with_secrets` also records the password fields on
+    /// screen at this moment (slower, so only when Hide secrets is on).
+    pub fn snapshot_with(src: &dyn ScreenSource, with_secrets: bool) -> Result<Self, CaptureError> {
         let monitors = src.monitors()?;
         let bounds = virtual_screen(&monitors.iter().map(|m| m.rect).collect::<Vec<_>>());
+        let secrets = if with_secrets {
+            src.secret_fields(bounds)
+        } else {
+            Vec::new()
+        };
         let image = src.grab(bounds)?;
         Ok(Self {
             origin: Point::new(bounds.x, bounds.y),
@@ -649,6 +764,7 @@ impl FrozenScreen {
             windows: src.windows().unwrap_or_default(),
             cursor: src.cursor(),
             foreground: src.foreground(),
+            secrets,
         })
     }
 
@@ -695,6 +811,13 @@ impl ScreenSource for FrozenScreen {
     }
     fn foreground(&self) -> Option<WindowInfo> {
         self.foreground.clone()
+    }
+    fn secret_fields(&self, rect: Rect) -> Vec<Rect> {
+        self.secrets
+            .iter()
+            .filter(|r| r.intersect(&rect).is_some())
+            .copied()
+            .collect()
     }
 }
 #[cfg(test)]
@@ -856,6 +979,64 @@ mod tests {
         let out = stitch_vertical(&frames).unwrap();
         assert_eq!(out.height(), 44);
         assert_eq!(out, page(44, 0));
+    }
+
+    /// A 200-wide window: `hdr` fixed rows on top, `ftr` fixed rows at the bottom, scrolling body
+    /// in between, plus a scrollbar thumb in the right strip that moves with the scroll offset.
+    fn window(h: u32, hdr: u32, ftr: u32, offset: u32) -> Raster {
+        let mut r = Raster::new(200, h, [0, 0, 0, 255]).unwrap();
+        for y in 0..h {
+            for x in 0..200u32 {
+                let px = if y < hdr {
+                    [250, 10, 10, 255]
+                } else if y >= h - ftr {
+                    [10, 10, 250, 255]
+                } else {
+                    let v = (y - hdr + offset) as u8;
+                    [v, v.wrapping_mul(3), (x % 150) as u8, 255]
+                };
+                r.put(x as i32, y as i32, px);
+            }
+            // scrollbar thumb
+            if (y + offset) % 7 < 3 {
+                for x in 180..200 {
+                    r.put(x, y as i32, [90, 90, 90, 255]);
+                }
+            }
+        }
+        r
+    }
+
+    #[test]
+    fn stitch_keeps_sticky_header_and_footer_once_and_ignores_scrollbar() {
+        let (h, hdr, ftr) = (40, 6, 4);
+        let frames = vec![
+            window(h, hdr, ftr, 0),
+            window(h, hdr, ftr, 15),
+            window(h, hdr, ftr, 30),
+        ];
+        let out = stitch_vertical(&frames).unwrap();
+        // header + body (30 + 30 rows) + footer
+        assert_eq!(out.height(), hdr + (h - hdr - ftr) + 30 + ftr);
+        assert_eq!(out.get(0, 0), Some([250, 10, 10, 255]));
+        assert_eq!(
+            out.get(0, out.height() as i32 - 1),
+            Some([10, 10, 250, 255])
+        );
+        // The body row right after the header is the very first content row.
+        assert_eq!(out.get(0, hdr as i32), Some([0, 0, 0, 255]));
+        // Content row 45 of the scroll sits at hdr + 45.
+        assert_eq!(out.get(0, (hdr + 45) as i32).map(|p| p[0]), Some(45));
+    }
+
+    #[test]
+    fn stitch_tolerates_a_blinking_caret() {
+        let mut a = window(40, 0, 0, 0);
+        let b = window(40, 0, 0, 25);
+        // Caret in the overlap region of frame a (content row 30) differs by one pixel.
+        a.put(0, 30, [255, 255, 255, 255]);
+        let out = stitch_vertical(&[a, b]).unwrap();
+        assert_eq!(out.height(), 65);
     }
 
     #[test]

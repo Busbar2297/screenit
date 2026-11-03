@@ -13,5 +13,6 @@ pub fn all_commands() -> Vec<CommandSpec> {
     v.extend(crate::advanced_cmds::specs());
     v.extend(crate::video_cmds::specs());
     v.extend(crate::ml_cmds::specs());
+    v.extend(crate::secrets::specs());
     v
 }

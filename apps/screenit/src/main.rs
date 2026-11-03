@@ -36,6 +36,7 @@ fn tray_icon_image() -> Option<Icon> {
 }
 
 fn main() {
+    screenit_platform::window::set_app_user_model_id();
     use screenit_platform::instance::{Instance, acquire};
     let activation = match acquire() {
         Instance::First(a) => a,

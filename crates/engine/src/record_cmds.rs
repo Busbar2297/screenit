@@ -268,6 +268,38 @@ fn probe(s: &mut Session, p: &Value) -> CmdResult {
     Ok(json!(info))
 }
 
+fn audio_play(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["path", "ms"])?;
+    let player = s
+        .services
+        .player
+        .clone()
+        .ok_or_else(|| CommandError::Disabled("no audio player available".into()))?;
+    player
+        .play(
+            std::path::Path::new(a.str("path")?),
+            u64::from(a.u32("ms")?),
+        )
+        .map_err(CommandError::failed)?;
+    Ok(json!({}))
+}
+
+fn audio_pause(s: &mut Session, p: &Value) -> CmdResult {
+    Args::new(p, &[])?;
+    if let Some(player) = &s.services.player {
+        player.pause();
+    }
+    Ok(json!({}))
+}
+
+fn audio_stop(s: &mut Session, p: &Value) -> CmdResult {
+    Args::new(p, &[])?;
+    if let Some(player) = &s.services.player {
+        player.stop();
+    }
+    Ok(json!({}))
+}
+
 fn frame(s: &mut Session, p: &Value) -> CmdResult {
     let a = Args::new(p, &["path", "ms"])?;
     let v = s
@@ -324,5 +356,87 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"path":str,"ms":int}"#,
             frame,
         ),
+        c(
+            "video.audio.play",
+            "Play Video Audio",
+            r#"{"path":str,"ms":int}"#,
+            audio_play,
+        ),
+        c("video.audio.pause", "Pause Video Audio", "{}", audio_pause),
+        c("video.audio.stop", "Stop Video Audio", "{}", audio_stop),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use screenit_record::{RecordError, TrackPlayer};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    struct Mem {
+        plays: Mutex<Vec<(String, u64)>>,
+        pauses: AtomicUsize,
+        stops: AtomicUsize,
+    }
+
+    impl TrackPlayer for Mem {
+        fn play(&self, path: &std::path::Path, ms: u64) -> Result<(), RecordError> {
+            if path.as_os_str().is_empty() {
+                return Err(RecordError::BadConfig("empty path".into()));
+            }
+            if let Ok(mut g) = self.plays.lock() {
+                g.push((path.display().to_string(), ms));
+            }
+            Ok(())
+        }
+        fn pause(&self) {
+            self.pauses.fetch_add(1, Ordering::SeqCst);
+        }
+        fn stop(&self) {
+            self.stops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn session(player: Option<Arc<dyn TrackPlayer>>) -> Session {
+        Session::new(crate::Services {
+            player,
+            ..crate::Services::default()
+        })
+    }
+
+    #[test]
+    fn audio_commands_need_a_player_and_reject_bad_params() {
+        let mut bare = session(None);
+        assert!(matches!(
+            bare.dispatch("video.audio.play", &json!({"path": "a.mp4", "ms": 0})),
+            Err(CommandError::Disabled(_))
+        ));
+        assert!(bare.dispatch("video.audio.pause", &json!({})).is_ok());
+        let mem = Arc::new(Mem {
+            plays: Mutex::new(Vec::new()),
+            pauses: AtomicUsize::new(0),
+            stops: AtomicUsize::new(0),
+        });
+        let mut s = session(Some(mem.clone()));
+        assert!(s.dispatch("video.audio.play", &json!({})).is_err());
+        assert!(
+            s.dispatch("video.audio.play", &json!({"path": "", "ms": 0}))
+                .is_err()
+        );
+        assert!(
+            s.dispatch("video.audio.play", &json!({"path": "clip.mp4", "ms": 1200}))
+                .is_ok()
+        );
+        assert!(s.dispatch("video.audio.pause", &json!({})).is_ok());
+        assert!(s.dispatch("video.audio.stop", &json!({})).is_ok());
+        let plays = mem.plays.lock().ok();
+        let got = plays.as_ref().and_then(|g| g.first());
+        assert_eq!(
+            got.map(|(p, ms)| (p.as_str(), *ms)),
+            Some(("clip.mp4", 1200))
+        );
+        assert_eq!(mem.pauses.load(Ordering::SeqCst), 1);
+        assert_eq!(mem.stops.load(Ordering::SeqCst), 1);
+    }
 }

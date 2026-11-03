@@ -342,6 +342,14 @@ pub trait VideoReader: Send + Sync {
     fn frame_at(&self, path: &std::path::Path, ms: u64) -> Result<Raster, RecordError>;
 }
 
+/// Plays the audio track of a video while the UI shows the frames. A file with no audio track
+/// succeeds and stays silent. `pause` and `stop` are safe to call when nothing is playing.
+pub trait TrackPlayer: Send + Sync {
+    fn play(&self, path: &std::path::Path, ms: u64) -> Result<(), RecordError>;
+    fn pause(&self);
+    fn stop(&self);
+}
+
 /// Encodes a sequence of frames into an MP4 (video editing output).
 pub trait VideoWriter: Send + Sync {
     fn write(
