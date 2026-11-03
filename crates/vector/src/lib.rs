@@ -230,51 +230,198 @@ pub fn draw_arrow(r: &mut Raster, from: PointF, to: PointF, width: f32, c: Color
     }
 }
 
-/// Width in pixels of a text run at `size` (px height). Falls back to a rough estimate without fonts.
-pub fn text_width(text: &str, size: f32) -> f32 {
-    let Some(f) = font() else {
-        return text.chars().count() as f32 * size * 0.55;
+/// Font for Arabic-script text. Tahoma and Arial carry the Arabic presentation forms that
+/// `screenit_i18n::visual` emits; Segoe UI needs OpenType shaping this renderer does not do.
+fn arabic_font() -> Option<&'static FontVec> {
+    static FONT: OnceLock<Option<FontVec>> = OnceLock::new();
+    FONT.get_or_init(|| {
+        let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+        for f in ["tahoma.ttf", "arial.ttf"] {
+            if let Ok(bytes) = std::fs::read(format!("{dir}\\Fonts\\{f}")) {
+                if let Ok(font) = FontVec::try_from_vec(bytes) {
+                    return Some(font);
+                }
+            }
+        }
+        None
+    })
+    .as_ref()
+}
+
+fn is_rtl_char(c: char) -> bool {
+    matches!(c as u32, 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF)
+}
+
+fn face(ch: char) -> Option<&'static FontVec> {
+    if is_rtl_char(ch) {
+        arabic_font().or_else(font)
+    } else {
+        font()
+    }
+}
+
+fn advance(ch: char, size: f32) -> f32 {
+    match face(ch) {
+        Some(f) => f.as_scaled(PxScale::from(size)).h_advance(f.glyph_id(ch)),
+        None => size * 0.55,
+    }
+}
+
+/// One laid-out line: `text` is in left-to-right glyph order (shaped and bidi-reordered).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextLine {
+    pub text: String,
+    pub width: f32,
+    pub rtl: bool,
+}
+
+/// Wrapped, shaped text ready to draw.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextLayout {
+    pub lines: Vec<TextLine>,
+    pub width: f32,
+    pub line_height: f32,
+}
+
+impl TextLayout {
+    pub fn height(&self) -> f32 {
+        self.lines.len().max(1) as f32 * self.line_height
+    }
+}
+
+const MAX_LINES: usize = 5000;
+
+fn visual_line(logical: &str, size: f32) -> TextLine {
+    let text = screenit_i18n::visual(logical);
+    let width = text.chars().map(|c| advance(c, size)).sum();
+    let rtl = logical
+        .chars()
+        .find(|c| is_rtl_char(*c) || c.is_alphabetic())
+        .is_some_and(is_rtl_char);
+    TextLine { text, width, rtl }
+}
+
+/// Lay `text` out at `size`. `wrap > 0` breaks lines at spaces (and inside words that are
+/// wider than the box) so none is wider than `wrap`; `wrap <= 0` only breaks at newlines.
+pub fn layout_text(text: &str, size: f32, wrap: f32) -> TextLayout {
+    let size = if size.is_finite() {
+        size.clamp(1.0, 2000.0)
+    } else {
+        1.0
     };
-    let sf = f.as_scaled(PxScale::from(size));
-    text.chars().map(|ch| sf.h_advance(f.glyph_id(ch))).sum()
+    let line_height = font().map_or(size * 1.3, |f| {
+        let sf = f.as_scaled(PxScale::from(size));
+        sf.height() + sf.line_gap()
+    });
+    let wrap = if wrap.is_finite() && wrap > 0.0 {
+        wrap
+    } else {
+        0.0
+    };
+    let mut lines: Vec<TextLine> = Vec::new();
+    'paras: for para in text.split('\n') {
+        if wrap <= 0.0 {
+            lines.push(visual_line(para.trim_end_matches('\r'), size));
+        } else {
+            let mut cur = String::new();
+            for word in para.trim_end_matches('\r').split_inclusive(' ') {
+                let tried = format!("{cur}{word}");
+                if cur.is_empty() || visual_line(tried.trim_end(), size).width <= wrap {
+                    cur = tried;
+                } else {
+                    lines.push(visual_line(cur.trim_end(), size));
+                    cur = word.to_string();
+                }
+                // A single word wider than the box is split between characters.
+                while visual_line(cur.trim_end(), size).width > wrap && cur.chars().count() > 1 {
+                    let mut keep = String::new();
+                    let mut rest = cur.chars().peekable();
+                    while let Some(c) = rest.peek().copied() {
+                        let mut t = keep.clone();
+                        t.push(c);
+                        if !keep.is_empty() && visual_line(&t, size).width > wrap {
+                            break;
+                        }
+                        keep = t;
+                        rest.next();
+                    }
+                    lines.push(visual_line(&keep, size));
+                    cur = rest.collect();
+                    if cur.is_empty() {
+                        break;
+                    }
+                }
+                if lines.len() >= MAX_LINES {
+                    break 'paras;
+                }
+            }
+            lines.push(visual_line(cur.trim_end(), size));
+        }
+        if lines.len() >= MAX_LINES {
+            break;
+        }
+    }
+    let width = lines.iter().map(|l| l.width).fold(0.0, f32::max);
+    TextLayout {
+        lines,
+        width,
+        line_height,
+    }
+}
+
+/// Width in pixels of the widest line of `text` at `size` (px height).
+pub fn text_width(text: &str, size: f32) -> f32 {
+    layout_text(text, size, 0.0).width
 }
 
 /// Draw text with its top-left at `pos`. Returns the width drawn.
 pub fn draw_text(r: &mut Raster, text: &str, pos: PointF, size: f32, c: Color) -> f32 {
+    draw_text_box(r, text, pos, size, 0.0, c)
+}
+
+/// Draw text wrapped to `box_w` (0 = no wrapping) with its top-left at `pos`. Right-to-left
+/// lines are aligned to the right edge of the box. Returns the widest line drawn.
+pub fn draw_text_box(
+    r: &mut Raster,
+    text: &str,
+    pos: PointF,
+    size: f32,
+    box_w: f32,
+    c: Color,
+) -> f32 {
     if !size.is_finite() || size <= 0.0 || !pos.is_finite() {
         return 0.0;
     }
-    let Some(f) = font() else { return 0.0 };
-    let scale = PxScale::from(size.min(2000.0));
-    let sf = f.as_scaled(scale);
-    let mut x = pos.x;
-    let mut y = pos.y + sf.ascent();
-    let line_h = sf.height() + sf.line_gap();
-    let mut max_w: f32 = 0.0;
-    for ch in text.chars() {
-        if ch == '\n' {
-            max_w = max_w.max(x - pos.x);
-            x = pos.x;
-            y += line_h;
-            continue;
+    let Some(main) = font() else { return 0.0 };
+    let size = size.min(2000.0);
+    let scale = PxScale::from(size);
+    let lay = layout_text(text, size, box_w);
+    let align_w = if box_w > 0.0 { box_w } else { lay.width };
+    let ascent = main.as_scaled(scale).ascent();
+    let mut y = pos.y + ascent;
+    for line in &lay.lines {
+        let mut x = pos.x + if line.rtl { align_w - line.width } else { 0.0 };
+        for ch in line.text.chars() {
+            let Some(f) = face(ch) else { continue };
+            let g = f
+                .glyph_id(ch)
+                .with_scale_and_position(scale, ab_glyph::point(x, y));
+            x += f.as_scaled(scale).h_advance(g.id);
+            if let Some(og) = f.outline_glyph(g) {
+                let b = og.px_bounds();
+                og.draw(|gx, gy, v| {
+                    r.blend(
+                        b.min.x as i32 + gx as i32,
+                        b.min.y as i32 + gy as i32,
+                        c.0,
+                        cov(v),
+                    );
+                });
+            }
         }
-        let g = f
-            .glyph_id(ch)
-            .with_scale_and_position(scale, ab_glyph::point(x, y));
-        x += sf.h_advance(g.id);
-        if let Some(og) = f.outline_glyph(g) {
-            let b = og.px_bounds();
-            og.draw(|gx, gy, v| {
-                r.blend(
-                    b.min.x as i32 + gx as i32,
-                    b.min.y as i32 + gy as i32,
-                    c.0,
-                    cov(v),
-                );
-            });
-        }
+        y += lay.line_height;
     }
-    max_w.max(x - pos.x)
+    lay.width
 }
 
 fn shadow_color() -> Color {
@@ -478,6 +625,56 @@ mod tests {
             3.0,
             Color::RED,
         );
+    }
+
+    #[test]
+    fn arabic_is_shaped_into_joined_forms() {
+        // Logical "سلام": the letters must come out as presentation forms (joined), not the
+        // bare isolated letters the old renderer drew one by one.
+        let l = layout_text("سلام", 24.0, 0.0);
+        assert_eq!(l.lines.len(), 1);
+        assert!(l.lines[0].rtl);
+        assert!(
+            l.lines[0]
+                .text
+                .chars()
+                .all(|c| matches!(c as u32, 0xFB50..=0xFDFF | 0xFE70..=0xFEFF)),
+            "{:?}",
+            l.lines[0].text
+        );
+        // Visual order is the reverse of logical order: the first drawn glyph is the last letter.
+        assert_eq!(l.lines[0].text.chars().count(), 4);
+        let mut r = canvas();
+        if arabic_font().is_some() {
+            draw_text(&mut r, "سلام", PointF::new(4.0, 4.0), 24.0, Color::BLACK);
+            assert!(r.data().chunks(4).any(|p| p[0] < 128));
+        }
+    }
+
+    #[test]
+    fn wraps_inside_the_box_and_aligns_rtl_right() {
+        let l = layout_text("one two three four five six", 20.0, 80.0);
+        assert!(l.lines.len() > 1);
+        assert!(l.lines.iter().all(|x| x.width <= 80.5), "{:?}", l.lines);
+        let mut r = Raster::new(200, 60, [255; 4]).unwrap();
+        if arabic_font().is_some() {
+            draw_text_box(
+                &mut r,
+                "سلام",
+                PointF::new(0.0, 0.0),
+                20.0,
+                200.0,
+                Color::BLACK,
+            );
+            let ink = |x0: i32, x1: i32| {
+                (x0..x1).any(|x| (0..60).any(|y| r.get(x, y).is_some_and(|p| p[0] < 128)))
+            };
+            assert!(ink(120, 200) && !ink(0, 60));
+        }
+        // Hostile numbers do not panic.
+        for s in [f32::NAN, 0.0, -5.0, f32::INFINITY, 1.0e9] {
+            let _ = layout_text("a b c", s, s);
+        }
     }
 
     #[test]

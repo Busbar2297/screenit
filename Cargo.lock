@@ -2321,6 +2321,7 @@ dependencies = [
  "ab_glyph",
  "screenit-doc",
  "screenit-geom",
+ "screenit-i18n",
  "screenit-raster",
 ]
 

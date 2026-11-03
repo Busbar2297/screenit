@@ -139,3 +139,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## 2026-11-03 - Recording frame can be seen and moved (0.2.7)
 - There was no border once recording started, so the area was easy to lose and could not be moved. Four solid red bars now sit just outside the area (inside the screen when a side is at the edge) and are excluded from the capture. Dragging a bar calls record.move, which shifts the grab origin without changing the frame size.
+
+## Arabic annotation text
+- vector: text is now shaped + bidi-ordered (screenit_i18n::visual), drawn with Tahoma/Arial for Arabic glyphs, wrapped by layout_text, RTL lines right-aligned in a box.

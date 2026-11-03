@@ -8,6 +8,7 @@ license.workspace = true
 screenit-geom = { workspace = true }
 screenit-raster = { workspace = true }
 screenit-doc = { workspace = true }
+screenit-i18n = { workspace = true }
 
 ab_glyph = { workspace = true }
 
