@@ -10,6 +10,7 @@ screenit-i18n = { workspace = true }
 
 screenit-capture = { workspace = true }
 screenit-doc = { workspace = true }
+screenit-vector = { workspace = true }
 screenit-geom = { workspace = true }
 screenit-raster = { workspace = true }
 screenit-compose = { workspace = true }

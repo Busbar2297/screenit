@@ -347,15 +347,16 @@ fn delete(s: &mut Session, p: &Value) -> CmdResult {
 }
 
 fn restyle(s: &mut Session, p: &Value) -> CmdResult {
-    let a = Args::new(p, &["id", STYLE])?;
+    let a = Args::new(p, &["id", STYLE, "coalesce"])?;
     let id = a.u64("id")?;
+    let key = a.opt_str("coalesce")?.map(str::to_string);
     let base = s
         .doc_ref()?
         .get(id)
         .map(|o| o.style.clone())
         .ok_or_else(|| CommandError::Failed(format!("no object with id {id}")))?;
     let st = a.style(base)?;
-    s.edit("Style", None, |d| {
+    s.edit("Style", key.as_deref(), |d| {
         d.set_style(id, st).map_err(CommandError::failed)
     })?;
     Ok(Value::Null)
@@ -828,7 +829,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Change Object Style",
             "Tools",
             "",
-            r#"{"id":int,"style":{}}"#,
+            r#"{"id":int,"style":{},"coalesce"?:str}"#,
             restyle,
         ),
         c(

@@ -9,6 +9,7 @@ mod library_panel;
 mod overlay;
 mod recording;
 mod scrolling;
+mod selection;
 mod settings_panel;
 mod theme;
 mod toast;
@@ -87,12 +88,12 @@ impl Tool {
 
     pub(crate) fn hint(self) -> &'static str {
         match self {
-            Tool::Select => "Click an object to select it, drag to move it.",
+            Tool::Select => "Click an object to select it. Drag to move, resize or rotate it.",
             Tool::Arrow => "Drag from the tail to the tip.",
             Tool::Line => "Drag to draw a straight line.",
             Tool::Rect => "Drag to draw a rectangle.",
             Tool::Ellipse => "Drag to draw an ellipse.",
-            Tool::Text => "Click where the text should go.",
+            Tool::Text => "Drag to draw a text box, then type in it.",
             Tool::Step => "Click to drop the next numbered step.",
             Tool::Highlight => "Drag over the area to highlight.",
             Tool::Blur => "Drag over sensitive content to blur it.",
@@ -157,12 +158,19 @@ pub struct UiApp {
     pub(crate) tool: Tool,
     pub(crate) stroke: egui::Color32,
     pub(crate) width: f32,
-    pub(crate) text: String,
     pub(crate) zoom: f32,
     pub(crate) status: String,
     pub(crate) drag: Option<egui::Pos2>,
     pub(crate) pen: Vec<[f32; 2]>,
     pub(crate) selected: Option<u64>,
+    /// Text box being typed into.
+    pub(crate) editing: Option<u64>,
+    /// What the current drag does to the selected object.
+    pub(crate) gesture: Option<selection::Gesture>,
+    /// Counts gestures and edits so each one is a single undo step.
+    pub(crate) gesture_seq: u32,
+    /// The selection whose style the property panel last loaded.
+    sel_synced: Option<u64>,
     pub(crate) overlay: Option<overlay::Overlay>,
     pending: Option<(Instant, Pending, Option<String>)>,
     pub(crate) view: View,
@@ -223,12 +231,15 @@ impl UiApp {
             tool: Tool::Arrow,
             stroke: egui::Color32::from_rgb(230, 30, 30),
             width: 3.0,
-            text: "Text".into(),
             zoom: 1.0,
             status: screenit_i18n::t("status.ready"),
             drag: None,
             pen: Vec::new(),
             selected: None,
+            editing: None,
+            gesture: None,
+            gesture_seq: 0,
+            sel_synced: None,
             overlay: None,
             pending: None,
             view: View::Compact,

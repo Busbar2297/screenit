@@ -29,6 +29,17 @@ Capture, recording, OCR and encoding use components that ship with Windows: GDI,
 Snagit is a trademark of TechSmith Corporation. screenIt is an independent project and is not affiliated with or endorsed by TechSmith.
 ";
 
+/// The selected object as the property panel shows it.
+struct SelInfo {
+    label: &'static str,
+    fillable: bool,
+    text: bool,
+    /// Colour and thickness apply (not for blur, highlight, magnify).
+    styled: bool,
+    can_rotate: bool,
+    fill: Option<Color32>,
+}
+
 const SWATCHES: [Color32; 10] = [
     Color32::from_rgb(239, 68, 68),
     Color32::from_rgb(249, 115, 22),
@@ -532,17 +543,108 @@ impl UiApp {
         });
     }
 
-    /// Properties for the active tool, plus view controls.
+    /// What the property panel needs to know about the selected object.
+    fn selected_info(&self) -> Option<SelInfo> {
+        let o = self.session.doc_ref().ok()?.get(self.selected?)?;
+        use screenit_doc::ObjectKind as K;
+        let (label, fillable, text) = match &o.kind {
+            K::Arrow { .. } => ("Arrow", false, false),
+            K::Line { .. } => ("Line", false, false),
+            K::Rect { .. } => ("Rectangle", true, false),
+            K::Ellipse { .. } => ("Ellipse", true, false),
+            K::Text { .. } => ("Text box", false, true),
+            K::Callout { .. } => ("Callout", true, false),
+            K::Step { .. } => ("Step", false, false),
+            K::Pen { .. } => ("Pen", false, false),
+            K::Stamp { .. } => ("Stamp", false, false),
+            K::Blur { .. } => ("Blur", false, false),
+            K::Highlight { .. } => ("Highlight", false, false),
+            K::Magnify { .. } => ("Magnify", false, false),
+        };
+        let c = o.style.fill.map(|c| c.0);
+        Some(SelInfo {
+            label,
+            fillable,
+            text,
+            styled: !matches!(
+                o.kind,
+                K::Blur { .. } | K::Highlight { .. } | K::Magnify { .. }
+            ),
+            can_rotate: o.can_rotate(),
+            fill: c.map(|c| Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])),
+        })
+    }
+
+    /// Load the selected object's colour and thickness into the panel when the selection changes.
+    pub(crate) fn sync_selected_style(&mut self) {
+        if self.sel_synced == self.selected {
+            return;
+        }
+        self.sel_synced = self.selected;
+        let Some((c, w)) = self
+            .selected
+            .and_then(|id| self.session.doc_ref().ok()?.get(id))
+            .map(|o| {
+                let w = match &o.kind {
+                    screenit_doc::ObjectKind::Text { size, .. } => size / 6.0,
+                    _ => o.style.width,
+                };
+                (o.style.stroke.0, w)
+            })
+        else {
+            return;
+        };
+        self.stroke = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+        self.width = w.clamp(1.0, 40.0);
+    }
+
+    /// Push the panel's colour / thickness onto the selected object (one undo step per object
+    /// while the controls are being dragged).
+    fn apply_selected_style(&mut self, info: &SelInfo) {
+        let Some(id) = self.selected else { return };
+        let key = format!("style-{id}");
+        if info.text {
+            self.run(
+                "editor.object.style",
+                json!({"id": id, "style": {"stroke": self.stroke_hex()}, "coalesce": key}),
+            );
+            let size = (self.width * 6.0).max(12.0);
+            self.run(
+                "editor.object.text",
+                json!({"id": id, "size": size, "coalesce": format!("size-{id}")}),
+            );
+        } else if info.styled {
+            self.run(
+                "editor.object.style",
+                json!({
+                    "id": id,
+                    "style": {"stroke": self.stroke_hex(), "width": self.width},
+                    "coalesce": key,
+                }),
+            );
+        }
+    }
+
+    /// Properties for the active tool or the selected object, plus view controls.
     pub(crate) fn properties(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
-        let name = Tool::ALL
-            .iter()
-            .find(|t| t.0 == self.tool)
-            .map(|t| t.1)
-            .unwrap_or("");
+        let info = self.selected_info();
+        let name = match &info {
+            Some(i) => i.label,
+            None => Tool::ALL
+                .iter()
+                .find(|t| t.0 == self.tool)
+                .map(|t| t.1)
+                .unwrap_or(""),
+        };
         ui.label(egui::RichText::new(name).size(16.0).strong());
         ui.add_space(8.0);
-        if self.tool.uses_color() {
+        let before = (self.stroke, self.width);
+        let styled = match &info {
+            Some(i) => i.styled,
+            None => self.tool.uses_color(),
+        };
+        if styled {
             theme::caption(ui, "Color");
             let mut chosen = None;
             egui::Grid::new("swatches")
@@ -586,32 +688,80 @@ impl UiApp {
                 );
             });
             ui.add_space(10.0);
-            theme::caption(
-                ui,
-                if self.tool == Tool::Text {
-                    "Size"
-                } else {
-                    "Thickness"
-                },
-            );
+            let is_text = info.as_ref().map_or(self.tool == Tool::Text, |i| i.text);
+            theme::caption(ui, if is_text { "Size" } else { "Thickness" });
             ui.add(egui::Slider::new(&mut self.width, 1.0..=40.0).suffix(" px"));
             ui.add_space(10.0);
         }
-        if self.tool == Tool::Text {
-            theme::caption(ui, "Text");
-            ui.add(
-                egui::TextEdit::multiline(&mut self.text)
-                    .desired_rows(2)
-                    .desired_width(f32::INFINITY),
-            );
-            ui.add_space(10.0);
-        }
-        ui.label(
-            egui::RichText::new(self.tool.hint())
+        if let Some(i) = &info {
+            if (self.stroke, self.width) != before {
+                self.apply_selected_style(i);
+            }
+            if i.fillable {
+                let mut on = i.fill.is_some();
+                let mut col = i.fill.unwrap_or(self.stroke);
+                theme::caption(ui, "Fill");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut on, "Fill");
+                    if on {
+                        ui.color_edit_button_srgba(&mut col);
+                    }
+                });
+                if (on, col) != (i.fill.is_some(), i.fill.unwrap_or(self.stroke)) {
+                    let fill = if on {
+                        format!(
+                            "#{:02x}{:02x}{:02x}{:02x}",
+                            col.r(),
+                            col.g(),
+                            col.b(),
+                            col.a()
+                        )
+                    } else {
+                        "none".to_string()
+                    };
+                    if let Some(id) = self.selected {
+                        self.run(
+                            "editor.object.style",
+                            json!({"id": id, "style": {"fill": fill}, "coalesce": format!("fill-{id}")}),
+                        );
+                    }
+                }
+                ui.add_space(10.0);
+            }
+            theme::caption(ui, "Arrange");
+            ui.horizontal_wrapped(|ui| {
+                if i.can_rotate {
+                    if ui.button("Rotate left").clicked() {
+                        self.rotate_selected(-90.0);
+                    }
+                    if ui.button("Rotate right").clicked() {
+                        self.rotate_selected(90.0);
+                    }
+                }
+                if ui.button("Delete").clicked() {
+                    self.delete_selected();
+                }
+            });
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(if i.text {
+                    "Double-click the box to edit its text. Drag a handle to resize, the round handle to rotate."
+                } else {
+                    "Drag to move. Drag a handle to resize, the round handle to rotate."
+                })
                 .size(12.0)
                 .color(MUTED),
-        );
-        ui.add_space(16.0);
+            );
+            ui.add_space(16.0);
+        }
+        if info.is_none() {
+            ui.label(
+                egui::RichText::new(self.tool.hint())
+                    .size(12.0)
+                    .color(MUTED),
+            );
+            ui.add_space(16.0);
+        }
         theme::caption(ui, "View");
         ui.horizontal(|ui| {
             if theme::icon_button(ui, Icon::ZoomOut, &t("top.zoom_out"), false, 30.0).clicked() {
@@ -654,9 +804,23 @@ impl UiApp {
         });
     }
 
-    /// Editor keyboard shortcuts (ignored while a text field has focus).
+    pub(crate) fn rotate_selected(&mut self, delta: f32) {
+        if let Some(id) = self.selected {
+            self.run("editor.object.rotate", json!({"id": id, "delta": delta}));
+        }
+    }
+
+    pub(crate) fn delete_selected(&mut self) {
+        if let Some(id) = self.selected.take() {
+            self.editing = None;
+            self.run("editor.object.delete", json!({"id": id}));
+        }
+    }
+
+    /// Editor keyboard shortcuts (ignored while a text field has focus or a text box is
+    /// being typed into).
     pub(crate) fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.memory(|m| m.focused().is_some()) {
+        if self.editing.is_some() || ctx.memory(|m| m.focused().is_some()) {
             return;
         }
         let (keys, ctrl, shift) = ctx.input(|i| {
@@ -693,6 +857,17 @@ impl UiApp {
                     _ => {}
                 }
                 continue;
+            }
+            match k {
+                egui::Key::Delete => {
+                    self.delete_selected();
+                    continue;
+                }
+                egui::Key::Escape => {
+                    self.selected = None;
+                    continue;
+                }
+                _ => {}
             }
             if let Some(t) = Tool::ALL
                 .iter()

@@ -145,3 +145,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## Object edit engine
 - doc: Object.rotation, text boxes (width/height), rotation-aware bounds/hit-test, Object::resize with anchor. vector: rotated drawing via scratch raster. engine: editor.object.{text,resize,rotate,endpoint}. tests in engine/tests/object_edit.rs.
+
+## 2026-11-03 selection UI
+- Select tool: click/drag to move, 8 resize handles + rotate handle, Rotate left/right, Delete, live colour/width/fill edits on the selection (properties panel follows the selection).
+- Text tool: drag a box, type in it (Latin/Arabic), box outline + handles show only while selected/editing; click away or Esc leaves just the text. Empty boxes are removed.
+- Drag start uses press_origin (interact_pointer_pos is the current pointer). Canvas split into helpers (cognitive-complexity gate).
+- Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
+
