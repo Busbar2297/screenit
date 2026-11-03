@@ -150,6 +150,8 @@ fn ocr_replace(s: &mut Session, p: &Value) -> CmdResult {
                 pos: screenit_geom::PointF::new(r.x as f32, r.y as f32),
                 text,
                 size,
+                width: 0.0,
+                height: 0.0,
             },
             Style {
                 stroke: fg,

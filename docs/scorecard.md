@@ -33,4 +33,4 @@ limit = 60
 limit = 24
 ```
 
-Rows with named tests: 52/111.
+Rows with named tests: 53/111.

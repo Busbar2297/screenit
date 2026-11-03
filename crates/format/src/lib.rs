@@ -147,6 +147,8 @@ mod tests {
                 pos: PointF::new(2.0, 2.0),
                 text: "héllo".into(),
                 size: 12.0,
+                width: 0.0,
+                height: 0.0,
             },
             Style::default(),
         )

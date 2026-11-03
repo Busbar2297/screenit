@@ -11,6 +11,7 @@ screenit-doc = { workspace = true }
 screenit-ops = { workspace = true }
 screenit-algo = { workspace = true }
 screenit-compose = { workspace = true }
+screenit-vector = { workspace = true }
 screenit-format = { workspace = true }
 screenit-capture = { workspace = true }
 screenit-record = { workspace = true }

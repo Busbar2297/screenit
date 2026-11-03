@@ -2161,6 +2161,7 @@ dependencies = [
  "screenit-raster",
  "screenit-record",
  "screenit-testkit",
+ "screenit-vector",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

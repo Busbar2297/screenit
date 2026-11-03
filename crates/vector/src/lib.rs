@@ -311,7 +311,7 @@ pub fn layout_text(text: &str, size: f32, wrap: f32) -> TextLayout {
     };
     let line_height = font().map_or(size * 1.3, |f| {
         let sf = f.as_scaled(PxScale::from(size));
-        sf.height() + sf.line_gap()
+        (sf.height() + sf.line_gap()) * 1.15
     });
     let wrap = if wrap.is_finite() && wrap > 0.0 {
         wrap
@@ -430,6 +430,98 @@ fn shadow_color() -> Color {
 
 /// Draw a pure-vector object. Pixel-dependent kinds (Blur, Magnify, Highlight) are handled by the compositor.
 pub fn draw_object(r: &mut Raster, o: &Object) {
+    if o.rotation.is_finite() && o.rotation.abs() > 0.01 && o.uses_rotation_field() {
+        draw_rotated(r, o);
+    } else {
+        draw_flat(r, o);
+    }
+}
+
+/// Render the unrotated object to a transparent scratch raster, then paste it turned about
+/// the centre of its box with bilinear sampling.
+fn draw_rotated(r: &mut Raster, o: &Object) {
+    let lb = o.local_bounds();
+    if !lb.is_finite() {
+        return;
+    }
+    let pad = o.style.width.max(1.0) + 8.0;
+    let (ox, oy) = (lb.x.floor() - pad, lb.y.floor() - pad);
+    let (w, h) = (
+        (lb.w + 2.0 * pad).ceil() + 1.0,
+        (lb.h + 2.0 * pad).ceil() + 1.0,
+    );
+    if !(w.is_finite() && h.is_finite()) || w > 8192.0 || h > 8192.0 {
+        return;
+    }
+    let Ok(mut tmp) = Raster::new(w as u32, h as u32, [0, 0, 0, 0]) else {
+        return;
+    };
+    let mut flat = o.clone();
+    flat.rotation = 0.0;
+    flat.translate(-ox, -oy);
+    draw_flat(&mut tmp, &flat);
+    let c = o.center();
+    let cl = PointF::new(c.x - ox, c.y - oy);
+    // Destination box: the scratch corners turned about the centre.
+    let corners = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]
+        .map(|(x, y)| screenit_doc::rotate_point(PointF::new(x, y), cl, o.rotation));
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in &corners {
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    let Some((bx0, by0, bx1, by1)) = bounds_px(r, x0 + ox, y0 + oy, x1 + ox, y1 + oy) else {
+        return;
+    };
+    let (tw, th) = (tmp.width() as i32, tmp.height() as i32);
+    let texel = |x: i32, y: i32| -> [f32; 4] {
+        if x < 0 || y < 0 || x >= tw || y >= th {
+            return [0.0; 4];
+        }
+        tmp.get(x, y).map_or([0.0; 4], |p| p.map(f32::from))
+    };
+    for y in by0..=by1 {
+        for x in bx0..=bx1 {
+            let dp = PointF::new(x as f32 + 0.5 - ox, y as f32 + 0.5 - oy);
+            let s = screenit_doc::rotate_point(dp, cl, -o.rotation);
+            let (u, v) = (s.x - 0.5, s.y - 0.5);
+            let (fx, fy) = (u.floor(), v.floor());
+            let (tx, ty) = (u - fx, v - fy);
+            let (ix, iy) = (fx as i32, fy as i32);
+            let taps = [
+                (texel(ix, iy), (1.0 - tx) * (1.0 - ty)),
+                (texel(ix + 1, iy), tx * (1.0 - ty)),
+                (texel(ix, iy + 1), (1.0 - tx) * ty),
+                (texel(ix + 1, iy + 1), tx * ty),
+            ];
+            let (mut a, mut cr, mut cg, mut cb) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            for (p, wgt) in taps {
+                let wa = wgt * p[3];
+                a += wa;
+                cr += wa * p[0];
+                cg += wa * p[1];
+                cb += wa * p[2];
+            }
+            if a >= 1.0 {
+                let px = [
+                    (cr / a).round().clamp(0.0, 255.0) as u8,
+                    (cg / a).round().clamp(0.0, 255.0) as u8,
+                    (cb / a).round().clamp(0.0, 255.0) as u8,
+                ];
+                r.blend(
+                    x,
+                    y,
+                    [px[0], px[1], px[2], 255],
+                    a.round().clamp(0.0, 255.0) as u8,
+                );
+            }
+        }
+    }
+}
+
+fn draw_flat(r: &mut Raster, o: &Object) {
     let st = &o.style;
     let stroke = Some((st.stroke, st.width.max(0.5)));
     let shadow = |r: &mut Raster, obj: &Object| {
@@ -439,7 +531,7 @@ pub fn draw_object(r: &mut Raster, o: &Object) {
             sh.style.stroke = shadow_color();
             sh.style.fill = sh.style.fill.map(|_| shadow_color());
             sh.translate(3.0, 3.0);
-            draw_object(r, &sh);
+            draw_flat(r, &sh);
         }
     };
     shadow(r, o);
@@ -448,8 +540,14 @@ pub fn draw_object(r: &mut Raster, o: &Object) {
         ObjectKind::Line { from, to } => draw_line(r, *from, *to, st.width, st.stroke),
         ObjectKind::Rect { rect, radius } => draw_rect(r, *rect, *radius, st.fill, stroke),
         ObjectKind::Ellipse { rect } => draw_ellipse(r, *rect, st.fill, stroke),
-        ObjectKind::Text { pos, text, size } => {
-            draw_text(r, text, *pos, *size, st.stroke);
+        ObjectKind::Text {
+            pos,
+            text,
+            size,
+            width,
+            ..
+        } => {
+            draw_text_box(r, text, *pos, *size, *width, st.stroke);
         }
         ObjectKind::Callout {
             rect,
@@ -678,6 +776,37 @@ mod tests {
     }
 
     #[test]
+    fn rotated_rect_turns_about_its_centre() {
+        use screenit_doc::{CaptureDoc, Style};
+        let mut d = CaptureDoc::new(canvas());
+        let id = d
+            .add(
+                ObjectKind::Rect {
+                    rect: RectF::new(12.0, 28.0, 40.0, 8.0),
+                    radius: 0.0,
+                },
+                Style {
+                    fill: Some(Color::BLACK),
+                    ..Style::default()
+                },
+            )
+            .unwrap();
+        d.rotate(id, 90.0).unwrap();
+        let mut r = canvas();
+        draw_object(&mut r, d.get(id).unwrap());
+        // Centre (32,32): the 40x8 bar is now 8 wide and 40 tall.
+        assert!(r.get(32, 18).unwrap()[0] < 80, "top of the turned bar");
+        assert!(r.get(32, 46).unwrap()[0] < 80, "bottom of the turned bar");
+        assert_eq!(r.get(14, 32).unwrap()[0], 255, "old left end is empty");
+        // Hostile angles do not panic.
+        for a in [f32::NAN, f32::INFINITY, 1.0e30] {
+            let mut o = d.get(id).unwrap().clone();
+            o.rotation = a;
+            draw_object(&mut r, &o);
+        }
+    }
+
+    #[test]
     fn text_draws_when_a_font_exists() {
         let mut r = canvas();
         let w = draw_text(&mut r, "Hi", PointF::new(4.0, 4.0), 24.0, Color::BLACK);
@@ -698,6 +827,7 @@ mod tests {
                 radius: 14.0,
             },
             style: Style::default(),
+            rotation: 0.0,
         };
         draw_object(&mut r, &o);
         assert_ne!(r.get(22, 32), Some([255; 4]));

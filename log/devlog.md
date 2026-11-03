@@ -142,3 +142,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## Arabic annotation text
 - vector: text is now shaped + bidi-ordered (screenit_i18n::visual), drawn with Tahoma/Arial for Arabic glyphs, wrapped by layout_text, RTL lines right-aligned in a box.
+
+## Object edit engine
+- doc: Object.rotation, text boxes (width/height), rotation-aware bounds/hit-test, Object::resize with anchor. vector: rotated drawing via scratch raster. engine: editor.object.{text,resize,rotate,endpoint}. tests in engine/tests/object_edit.rs.

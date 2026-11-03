@@ -7,6 +7,7 @@ use crate::{CmdResult, CommandError, CommandSpec, Session, need_doc};
 use screenit_algo as algo;
 use screenit_doc::{Color, ObjectKind, Style};
 use screenit_geom::{PointF, Rect};
+use screenit_vector as vector;
 use serde_json::{Value, json};
 
 const STYLE: &str = "style";
@@ -73,22 +74,132 @@ fn ellipse(s: &mut Session, p: &Value) -> CmdResult {
     )
 }
 
+/// Size a text box to its content: an unset width takes the natural width of the text, and the
+/// height never drops below the wrapped text.
+fn fit_text(kind: &mut ObjectKind) {
+    if let ObjectKind::Text {
+        text,
+        size,
+        width,
+        height,
+        ..
+    } = kind
+    {
+        let lay = vector::layout_text(text, *size, *width);
+        if *width <= 0.0 {
+            *width = (lay.width + 2.0).ceil().max(*size);
+        }
+        let need = lay.height().ceil();
+        if need.is_finite() && need > *height {
+            *height = need;
+        }
+    }
+}
+
 fn text(s: &mut Session, p: &Value) -> CmdResult {
-    let a = Args::new(p, &["pos", "text", "size", STYLE])?;
+    let a = Args::new(p, &["pos", "text", "size", "width", "height", STYLE])?;
     let st = a.style(Style {
         width: 1.0,
         ..Style::default()
     })?;
-    add(
-        s,
-        "Text",
-        ObjectKind::Text {
-            pos: a.pointf("pos")?,
-            text: a.str("text")?.to_string(),
-            size: a.opt_f32("size")?.unwrap_or(24.0),
-        },
-        st,
-    )
+    let mut kind = ObjectKind::Text {
+        pos: a.pointf("pos")?,
+        text: a.str("text")?.to_string(),
+        size: a.opt_f32("size")?.unwrap_or(24.0),
+        width: a.opt_f32("width")?.unwrap_or(0.0),
+        height: a.opt_f32("height")?.unwrap_or(0.0),
+    };
+    kind.validate().map_err(CommandError::failed)?;
+    fit_text(&mut kind);
+    add(s, "Text", kind, st)
+}
+
+/// Change the text (and optionally the size) of a text box or callout.
+fn set_text(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["id", "text", "size", "coalesce"])?;
+    let id = a.u64("id")?;
+    let new_text = a.opt_str("text")?.map(str::to_string);
+    let new_size = a.opt_f32("size")?;
+    let key = a.opt_str("coalesce")?.map(str::to_string);
+    let mut kind = s
+        .doc_ref()?
+        .get(id)
+        .map(|o| o.kind.clone())
+        .ok_or_else(|| CommandError::Failed(format!("no object with id {id}")))?;
+    match &mut kind {
+        ObjectKind::Text { text, size, .. } | ObjectKind::Callout { text, size, .. } => {
+            if let Some(t) = new_text {
+                *text = t;
+            }
+            if let Some(sz) = new_size {
+                *size = sz;
+            }
+        }
+        _ => return Err(CommandError::Failed("object has no text".into())),
+    }
+    kind.validate().map_err(CommandError::failed)?;
+    fit_text(&mut kind);
+    s.edit("Edit text", key.as_deref(), |d| {
+        d.replace_kind(id, kind).map_err(CommandError::failed)
+    })?;
+    Ok(Value::Null)
+}
+
+/// Resize an object's box. `rect` is in the object's own (unrotated) frame; the point at
+/// fraction `anchor` of the box stays put on screen.
+fn resize(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["id", "rect", "anchor", "coalesce"])?;
+    let id = a.u64("id")?;
+    let mut rect = a.rectf("rect")?.normalized();
+    let anchor = a.opt_pointf("anchor")?.map_or((0.0, 0.0), |q| (q.x, q.y));
+    let key = a.opt_str("coalesce")?.map(str::to_string);
+    if let Some(ObjectKind::Text { text, size, .. }) = s.doc_ref()?.get(id).map(|o| &o.kind) {
+        // A text box never gets shorter than its wrapped text.
+        let lay = vector::layout_text(text, *size, rect.w.max(1.0));
+        rect.h = rect.h.max(lay.height().ceil());
+    }
+    s.edit("Resize", key.as_deref(), |d| {
+        d.resize(id, rect, anchor).map_err(CommandError::failed)
+    })?;
+    Ok(Value::Null)
+}
+
+fn rotate(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["id", "delta", "coalesce"])?;
+    let (id, delta) = (a.u64("id")?, a.f32("delta")?);
+    let key = a.opt_str("coalesce")?.map(str::to_string);
+    s.edit("Rotate", key.as_deref(), |d| {
+        d.rotate(id, delta).map_err(CommandError::failed)
+    })?;
+    Ok(Value::Null)
+}
+
+/// Move one end of a line or arrow, or a callout's tail.
+fn endpoint(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["id", "which", "point", "coalesce"])?;
+    let id = a.u64("id")?;
+    let which = a.str("which")?.to_string();
+    let pt = a.pointf("point")?;
+    let key = a.opt_str("coalesce")?.map(str::to_string);
+    let mut kind = s
+        .doc_ref()?
+        .get(id)
+        .map(|o| o.kind.clone())
+        .ok_or_else(|| CommandError::Failed(format!("no object with id {id}")))?;
+    match (&mut kind, which.as_str()) {
+        (ObjectKind::Line { from, .. } | ObjectKind::Arrow { from, .. }, "from") => *from = pt,
+        (ObjectKind::Line { to, .. } | ObjectKind::Arrow { to, .. }, "to") => *to = pt,
+        (ObjectKind::Callout { tail, .. }, "tail") => *tail = pt,
+        _ => {
+            return Err(CommandError::Params(
+                "`which` must be from/to for a line or arrow, or tail for a callout".into(),
+            ));
+        }
+    }
+    s.edit("Move end", key.as_deref(), |d| {
+        d.replace_kind(id, kind).map_err(CommandError::failed)
+    })?;
+    Ok(Value::Null)
 }
 
 fn callout(s: &mut Session, p: &Value) -> CmdResult {
@@ -597,8 +708,40 @@ pub fn specs() -> Vec<CommandSpec> {
             "Text",
             "Tools",
             "Ctrl+T",
-            r#"{"pos":[x,y],"text":str,"size"?:num,"style"?:{}}"#,
+            r#"{"pos":[x,y],"text":str,"size"?:num,"width"?:num,"height"?:num,"style"?:{}}"#,
             text,
+        ),
+        c(
+            "editor.object.text",
+            "Edit Text",
+            "Tools",
+            "",
+            r#"{"id":int,"text"?:str,"size"?:num,"coalesce"?:str}"#,
+            set_text,
+        ),
+        c(
+            "editor.object.resize",
+            "Resize Object",
+            "Tools",
+            "",
+            r#"{"id":int,"rect":[x,y,w,h],"anchor"?:[fx,fy],"coalesce"?:str}"#,
+            resize,
+        ),
+        c(
+            "editor.object.rotate",
+            "Rotate Object",
+            "Tools",
+            "",
+            r#"{"id":int,"delta":degrees,"coalesce"?:str}"#,
+            rotate,
+        ),
+        c(
+            "editor.object.endpoint",
+            "Move Line End",
+            "Tools",
+            "",
+            r#"{"id":int,"which":"from"|"to"|"tail","point":[x,y],"coalesce"?:str}"#,
+            endpoint,
         ),
         c(
             "editor.callout.add",

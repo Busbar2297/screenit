@@ -344,7 +344,8 @@ group = "Editor tools"
 title = "Move tool (select, move, resize, delete objects)"
 tier = 1
 status = "partial"
-commands = ["editor.object.move", "editor.object.delete", "editor.object.hit_test"]
+commands = ["editor.object.move", "editor.object.delete", "editor.object.hit_test", "editor.object.resize", "editor.object.rotate", "editor.object.endpoint", "editor.object.text", "editor.object.style"]
+tests = ["object_edit::resize_keeps_the_anchor_and_undoes", "object_edit::rotated_resize_keeps_the_anchor_on_screen", "object_edit::hit_test_follows_rotation_and_thin_lines"]
 [[row]]
 id = "ed.selection"
 group = "Editor tools"
