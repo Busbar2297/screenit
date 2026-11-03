@@ -203,7 +203,7 @@ pub struct UiApp {
     applied_lang: String,
     /// View to return to from About.
     about_from: View,
-    /// The previous frame was the editor, so leaving it restores a normal window.
+    /// The previous frame could be maximized, so leaving it restores a normal window.
     editor_chrome: bool,
 }
 
@@ -316,19 +316,19 @@ impl UiApp {
         self.enter_view(ctx, View::About);
     }
 
-    /// Maximize, and resizing, exist only in the editor. Windows 11 still draws the Maximize
-    /// square on a resizable window after the button is disabled, so the other views are fixed.
+    /// Maximize is live in the editor and the library. Windows 11 draws a dimmed square on a
+    /// fixed window, so those two views are resizable and the capture bar stays fixed.
     fn sync_maximize_button(&mut self, ctx: &egui::Context) {
-        let editor = self.view == View::Editor;
-        if self.editor_chrome && !editor {
+        let grow = matches!(self.view, View::Editor | View::Library);
+        if self.editor_chrome && !grow {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         }
-        self.editor_chrome = editor;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(editor));
+        self.editor_chrome = grow;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(grow));
         ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
             close: true,
             minimized: true,
-            maximize: editor,
+            maximize: grow,
         });
     }
 

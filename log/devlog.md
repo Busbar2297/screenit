@@ -130,6 +130,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## 2026-11-03 - Hide secrets did not redraw (0.2.6)
 - The button reported "hid N" because editor.redact.apply succeeded, but the UI called session.dispatch directly, so doc_rev never moved and the canvas kept the old texture. It now goes through UiApp::run, which bumps the revision before the same frame redraws.
 
+## 2026-11-03 - Library Maximize was dimmed (0.2.9)
+- Windows 11 draws Maximize grey on a window that cannot be resized. The library was fixed like the capture bar, so the button was visible and dead. The library is resizable now, same as the editor. The capture bar stays fixed.
+
 ## 2026-11-03 - About, and Maximize only in the editor (0.2.8)
 - About (capture bar and the editor top bar) shows the version, opens https://github.com/Busbar2297/screenit, and scrolls the bundled credits.
 - The window is created without a Maximize button. The button is added only while the editor is showing, and the window is restored when you leave the editor. On Windows 11 the square stays drawn on a resizable window, so every other view is also not resizable.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9
+
+- Maximize works in the library. It was shown there but stayed dimmed.
+
 ## 0.2.8
 
 - About shows the version, a link to the GitHub repository, and the credits.
