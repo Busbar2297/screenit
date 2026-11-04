@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.11
+
+- Opening an image keeps the picture beside the tools and the properties. They no longer cover it.
+- Export saves PNG, JPEG, PDF, GIF, BMP, TIFF or WebP.
+
 ## 0.2.10
 
 - Draw a text box, type in it, and resize or move it while the outline is showing. The outline goes away when you finish, and only the text stays.
