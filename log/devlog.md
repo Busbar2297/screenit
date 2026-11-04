@@ -146,6 +146,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## Object edit engine
 - doc: Object.rotation, text boxes (width/height), rotation-aware bounds/hit-test, Object::resize with anchor. vector: rotated drawing via scratch raster. engine: editor.object.{text,resize,rotate,endpoint}. tests in engine/tests/object_edit.rs.
 
+## 2026-11-04 - qa.ps1
+- One script starts SonarQube when it is down, waits until it is up, and runs the quality gate. qa.md points the per-commit hook at that script.
+
 ## 2026-11-04 - Quality gate on each commit
 - qa.md: start the local SonarQube, then a Git pre-commit hook runs cargo sonar-scanner and refuses the commit when the gate fails.
 
