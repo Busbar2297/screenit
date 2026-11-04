@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.12
 
 - screenIt can update itself. It checks GitHub Releases at start and once a day, downloads a newer installer in the background, verifies its SHA-256, and offers Restart to update. Settings has an Updates tab, and About has Check for updates.
 

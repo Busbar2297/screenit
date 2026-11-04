@@ -172,6 +172,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-04 - Release 0.2.12
+- Version bump for automatic updates from GitHub Releases.
+
 ## 2026-11-04 - Automatic updates from GitHub
 - New crate screenit-update (L4, pure): Version, GitHub release JSON parser (drops drafts, foreign links), SHA256SUMS parser, Updater state machine (check, download + SHA-256 verify, install) over an UpdateHost trait, plus FakeHost.
 - platform::update: WinHTTP host (system proxy, timeouts, size cap, .part rename); installing starts a temp copy of screenit.exe with --apply-update <msi> --wait-pid <pid>, which waits for the app, runs msiexec /qn keeping STARTUP/DESKTOP choices, and relaunches.
