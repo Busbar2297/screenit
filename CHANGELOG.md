@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- screenIt can update itself. It checks GitHub Releases at start and once a day, downloads a newer installer in the background, verifies its SHA-256, and offers Restart to update. Settings has an Updates tab, and About has Check for updates.
+
 ## 0.2.11
 
 - Opening an image keeps the picture beside the tools and the properties. They no longer cover it.

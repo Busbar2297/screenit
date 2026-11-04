@@ -19,7 +19,7 @@ Calibri or Tahoma); none are redistributed.
 
 ## Libraries
 
-screenIt is built on the Rust ecosystem, notably `eframe`/`egui`, `ureq` (HTTP to a local LM Studio server), `toml`, `unicode-bidi` and `ar-reshaper` (translations, right-to-left text; all MIT/Apache-2.0), `windows` / `windows-sys`
+screenIt is built on the Rust ecosystem, notably `eframe`/`egui`, `ureq` (HTTP to a local LM Studio server), `sha2` (checking downloaded updates), `toml`, `unicode-bidi` and `ar-reshaper` (translations, right-to-left text; all MIT/Apache-2.0), `windows` / `windows-sys`
 (Microsoft), `tray-icon`, `image`, `ab_glyph`, `zip`, `serde`, `clap` and `chrono`, all under
 permissive licenses (MIT, Apache-2.0, or similar). The full dependency list is in `Cargo.lock`.
 

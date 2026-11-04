@@ -2,6 +2,7 @@
 
 mod layers;
 mod parity;
+mod release;
 
 use std::process::{Command, ExitCode};
 
@@ -29,6 +30,7 @@ fn main() -> ExitCode {
         ),
         "package" => package().map(|_| ()),
         "msi" => msi(),
+        "release" => release::run(),
         "i18n" => i18n_check(),
         "perf" => run_cargo(
             &[
@@ -45,7 +47,7 @@ fn main() -> ExitCode {
         ),
         _ => {
             eprintln!(
-                "usage: cargo xtask <layers|parity|scorecard|ci [--e2e]|bless|panic-hunt|perf|package|msi>"
+                "usage: cargo xtask <layers|parity|scorecard|ci [--e2e]|bless|panic-hunt|perf|package|msi|release>"
             );
             Ok(())
         }
@@ -403,5 +405,22 @@ fn msi() -> Result<(), String> {
         return Err("light failed".into());
     }
     println!("built {}", out.display());
+    write_sums(version)
+}
+
+/// `release/SHA256SUMS.txt`: one `<sha256>  <file>` line for the zip and the MSI. The in-app
+/// updater checks its download against this file.
+fn write_sums(version: &str) -> Result<(), String> {
+    let dir = std::path::Path::new("release");
+    let mut text = String::new();
+    for ext in ["zip", "msi"] {
+        let name = format!("screenit-v{version}-windows-x64.{ext}");
+        let hash = screenit_update::sha256_file(&dir.join(&name))
+            .map_err(|e| format!("hashing {name}: {e}"))?;
+        text.push_str(&format!("{hash}  {name}\n"));
+    }
+    let out = dir.join("SHA256SUMS.txt");
+    std::fs::write(&out, text).map_err(|e| e.to_string())?;
+    println!("wrote {}", out.display());
     Ok(())
 }

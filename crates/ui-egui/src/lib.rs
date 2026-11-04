@@ -13,6 +13,7 @@ mod selection;
 mod settings_panel;
 mod theme;
 mod toast;
+mod update_ui;
 
 use icons::Icon;
 
@@ -35,6 +36,8 @@ pub enum UiEvent {
     Control(String, Sender<String>),
     /// A message for the status line (e.g. a hotkey could not be registered).
     Notice(String),
+    /// The update timer fired: check GitHub when a check is due.
+    UpdateTick,
     Quit,
 }
 
@@ -213,6 +216,8 @@ pub struct UiApp {
     about_from: View,
     /// The previous frame could be maximized, so leaving it restores a normal window.
     editor_chrome: bool,
+    /// Update the user chose to hide with Later (until the app restarts).
+    pub(crate) update_hidden: Option<String>,
 }
 
 impl UiApp {
@@ -270,6 +275,7 @@ impl UiApp {
             applied_lang: String::new(),
             about_from: View::Compact,
             editor_chrome: false,
+            update_hidden: None,
         }
     }
 
@@ -527,6 +533,7 @@ impl UiApp {
                     let _ = reply.send(out);
                 }
                 UiEvent::Notice(msg) => self.status = msg,
+                UiEvent::UpdateTick => self.auto_update_check(),
                 UiEvent::Quit => self.quit = true,
             }
         }
@@ -732,7 +739,7 @@ impl eframe::App for UiApp {
             self.send_to_tray();
         }
         self.sync_language(ctx);
-        self.sync_language(ctx);
+        self.poll_updates(ctx);
         self.drain_events(ctx);
         self.poll_ocr_jobs();
         self.run_pending(ctx);
@@ -773,6 +780,11 @@ impl eframe::App for UiApp {
                 egui::Panel::bottom("status")
                     .frame(theme::panel_frame(theme::SURFACE, 4))
                     .show(ui, |ui| self.status_bar(ui));
+                if self.update_strip_wanted() {
+                    egui::Panel::bottom("update")
+                        .frame(bar(theme::SURFACE2))
+                        .show(ui, |ui| self.update_strip(ui));
+                }
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::BG, 0))
                     .show(ui, |ui| self.settings_view(ui));
@@ -784,6 +796,11 @@ impl eframe::App for UiApp {
                 egui::Panel::bottom("status")
                     .frame(theme::panel_frame(theme::SURFACE, 4))
                     .show(ui, |ui| self.status_bar(ui));
+                if self.update_strip_wanted() {
+                    egui::Panel::bottom("update")
+                        .frame(bar(theme::SURFACE2))
+                        .show(ui, |ui| self.update_strip(ui));
+                }
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::BG, 18))
                     .show(ui, |ui| self.library_view(ui));
@@ -801,6 +818,11 @@ impl eframe::App for UiApp {
                 egui::Panel::bottom("status")
                     .frame(theme::panel_frame(theme::SURFACE, 4))
                     .show(ui, |ui| self.status_bar(ui));
+                if self.update_strip_wanted() {
+                    egui::Panel::bottom("update")
+                        .frame(bar(theme::SURFACE2))
+                        .show(ui, |ui| self.update_strip(ui));
+                }
                 if self.video.is_some() {
                     egui::Panel::bottom("transport")
                         .frame(bar(theme::SURFACE))

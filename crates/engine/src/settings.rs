@@ -113,6 +113,31 @@ impl Default for PrivacySettings {
     }
 }
 
+/// Updates from GitHub Releases.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    /// Look for a newer release at startup and once a day.
+    pub auto_check: bool,
+    /// Download a newer release in the background (installing always waits for a click).
+    pub auto_download: bool,
+    /// A version the user chose to ignore; empty for none.
+    pub skipped_version: String,
+    /// Unix time of the last check, 0 for never.
+    pub last_check_unix: u64,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            auto_download: true,
+            skipped_version: String::new(),
+            last_check_unix: 0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -121,6 +146,7 @@ pub struct Settings {
     pub recording: RecordingSettings,
     pub ocr: OcrSettings,
     pub privacy: PrivacySettings,
+    pub updates: UpdateSettings,
     /// `None` means the built-in presets.
     pub presets: Option<Vec<Preset>>,
 }
@@ -133,6 +159,7 @@ impl Default for Settings {
             recording: RecordingSettings::default(),
             ocr: OcrSettings::default(),
             privacy: PrivacySettings::default(),
+            updates: UpdateSettings::default(),
             presets: None,
         }
     }
@@ -215,6 +242,9 @@ impl Settings {
         if !(1..=600).contains(&self.ocr.llm_timeout_secs) {
             self.ocr.llm_timeout_secs = d.ocr.llm_timeout_secs;
         }
+        if self.updates.skipped_version.len() > 32 {
+            self.updates.skipped_version.clear();
+        }
     }
 
     pub fn validate(&self) -> Result<(), CommandError> {
@@ -242,6 +272,11 @@ impl Settings {
         if !(1..=600).contains(&self.ocr.llm_timeout_secs) {
             return Err(CommandError::Params(
                 "ocr.llm_timeout_secs must be 1..=600".into(),
+            ));
+        }
+        if self.updates.skipped_version.len() > 32 {
+            return Err(CommandError::Params(
+                "updates.skipped_version is too long".into(),
             ));
         }
         if self.general.language.len() > 16

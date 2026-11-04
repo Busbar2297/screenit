@@ -94,6 +94,8 @@ impl UiApp {
         ui.add(
             egui::Label::new(egui::RichText::new(GITHUB).color(MUTED).size(13.0)).selectable(true),
         );
+        ui.add_space(8.0);
+        self.update_check_row(ui);
         ui.add_space(14.0);
         ui.label(egui::RichText::new(t("about.credits")).strong().size(16.0));
         ui.add_space(6.0);
@@ -121,6 +123,7 @@ impl UiApp {
                     .color(MUTED),
             );
             self.about_button(ui, ctx);
+            self.update_actions(ui, false);
         });
         ui.add_space(6.0);
         crate::h_row(ui, |ui| {

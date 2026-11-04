@@ -19,6 +19,7 @@ mod playback;
 mod screen;
 pub mod shell;
 mod uia;
+pub mod update;
 mod util;
 pub mod window;
 
@@ -65,6 +66,7 @@ pub fn services() -> Services {
         llm: Some(Arc::new(screenit_llm::LmStudio)),
         camera: Some(Arc::new(camera::MfCamera::new(None))),
         devices: Some(Arc::new(Devices)),
+        updater: updater(),
         recorder: Some(Box::new(move || {
             Box::new(MfRecorder::new(rec_screen.clone()))
         })),
@@ -73,4 +75,15 @@ pub fn services() -> Services {
         player: Some(Arc::new(playback::MfTrackPlayer::new())),
         ..Services::default()
     }
+}
+
+/// The updater for this install: downloads go to %LOCALAPPDATA%\screenIt\updates.
+fn updater() -> Option<Arc<screenit_update::Updater>> {
+    let dir = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from)?;
+    screenit_update::Updater::new(
+        Arc::new(update::WinUpdateHost),
+        env!("CARGO_PKG_VERSION"),
+        dir.join("screenIt").join("updates"),
+    )
+    .map(Arc::new)
 }

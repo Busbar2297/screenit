@@ -840,3 +840,12 @@ tier = 2
 status = "done"
 commands = ["record.start"]
 tests = ["commands::recording_output_size_param_and_setting", "mf::tests::encodes_and_decodes_3840x2160_without_shear"]
+
+[[row]]
+id = "sys.update"
+group = "Application"
+title = "Automatic updates from GitHub Releases: background check, SHA-256 verified download, restart to install"
+tier = 2
+status = "done"
+commands = ["app.update.check", "app.update.download", "app.update.install", "app.update.skip", "app.update.status"]
+tests = ["update_cmds::tests::check_downloads_and_install_hands_over", "tests::checksum_mismatch_deletes_the_file", "tests::offline_fails_quietly_and_can_be_retried"]

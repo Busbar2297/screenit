@@ -36,6 +36,12 @@ fn tray_icon_image() -> Option<Icon> {
 }
 
 fn main() {
+    // Helper mode: a temporary copy of this exe that installs a downloaded update after the
+    // real app has exited, then starts the new version.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some((msi, pid)) = screenit_platform::update::apply_request(&args) {
+        std::process::exit(screenit_platform::update::apply_update(&msi, pid));
+    }
     screenit_platform::window::set_app_user_model_id();
     use screenit_platform::instance::{Instance, acquire};
     let activation = match acquire() {
@@ -147,6 +153,20 @@ fn main() {
         if let Err(e) = &server {
             eprintln!("control channel disabled: {e}");
         }
+
+        // Update timer: first look 30 s after start, then hourly. The engine decides whether a
+        // check is due (once a day, and only when automatic checks are on).
+        let (t, w) = (tx.clone(), waker.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            loop {
+                if t.send(UiEvent::UpdateTick).is_err() {
+                    break;
+                }
+                w.wake();
+                std::thread::sleep(std::time::Duration::from_secs(60 * 60));
+            }
+        });
 
         // Tray icon: keep it alive for the life of the process.
         let menu = Menu::new();

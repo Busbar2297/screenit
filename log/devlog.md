@@ -171,3 +171,11 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Drag start uses press_origin (interact_pointer_pos is the current pointer). Canvas split into helpers (cognitive-complexity gate).
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
+
+## 2026-11-04 - Automatic updates from GitHub
+- New crate screenit-update (L4, pure): Version, GitHub release JSON parser (drops drafts, foreign links), SHA256SUMS parser, Updater state machine (check, download + SHA-256 verify, install) over an UpdateHost trait, plus FakeHost.
+- platform::update: WinHTTP host (system proxy, timeouts, size cap, .part rename); installing starts a temp copy of screenit.exe with --apply-update <msi> --wait-pid <pid>, which waits for the app, runs msiexec /qn keeping STARTUP/DESKTOP choices, and relaunches.
+- Engine: Services.updater, settings.updates, commands app.update.{status,check,download,install,skip}; worker threads, daily "due" check driven by an hourly UiEvent::UpdateTick (first at 30 s).
+- UI: strip above the status bar, pill in the compact launcher, Settings > Updates, About > Check for updates. 17 new i18n keys (11 languages translated, the rest English).
+- xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
+- Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.

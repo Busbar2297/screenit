@@ -27,6 +27,7 @@ mod secrets;
 pub use secrets::{Found, ScanResult, SecretScan};
 pub mod settings;
 mod system_cmds;
+mod update_cmds;
 mod video_cmds;
 
 pub use args::Args;
@@ -113,6 +114,8 @@ pub struct Services {
     pub llm: Option<Arc<dyn screenit_capture::LlmOcr>>,
     pub camera: Option<Arc<dyn screenit_record::CameraSource>>,
     pub devices: Option<Arc<dyn screenit_record::AvDevices>>,
+    /// Looks for, downloads and installs newer releases from GitHub.
+    pub updater: Option<Arc<screenit_update::Updater>>,
 }
 
 impl Default for Services {
@@ -129,6 +132,7 @@ impl Default for Services {
             llm: None,
             camera: None,
             devices: None,
+            updater: None,
         }
     }
 }

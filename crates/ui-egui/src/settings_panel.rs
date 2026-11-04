@@ -15,6 +15,7 @@ pub(crate) enum Tab {
     Recording,
     Ocr,
     Privacy,
+    Updates,
 }
 
 fn privacy_form(ui: &mut egui::Ui, s: &mut Settings) {
@@ -50,6 +51,30 @@ fn privacy_form(ui: &mut egui::Ui, s: &mut Settings) {
             ]),
         );
     });
+}
+
+impl UiApp {
+    fn updates_form(&mut self, ui: &mut egui::Ui, s: &mut Settings) {
+        ui.heading(t("updates.title"));
+        ui.add_space(8.0);
+        row(ui, &t("updates.auto_check"), |ui| {
+            ui.checkbox(&mut s.updates.auto_check, "");
+        });
+        row(ui, &t("updates.auto_download"), |ui| {
+            ui.checkbox(&mut s.updates.auto_download, "");
+        });
+        ui.label(
+            egui::RichText::new(t("updates.hint"))
+                .size(11.5)
+                .color(MUTED),
+        );
+        ui.add_space(10.0);
+        ui.label(tf("about.version", &[("v", env!("CARGO_PKG_VERSION"))]));
+        self.update_check_row(ui);
+        // A check records its time; keep it when the form is saved.
+        s.updates.last_check_unix = self.session.settings.updates.last_check_unix;
+        s.updates.skipped_version = self.session.settings.updates.skipped_version.clone();
+    }
 }
 
 fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, options: &[(String, String)]) {
@@ -126,6 +151,7 @@ impl UiApp {
                         (Tab::Recording, "settings.cat.recording"),
                         (Tab::Ocr, "settings.cat.ocr"),
                         (Tab::Privacy, "settings.cat.privacy"),
+                        (Tab::Updates, "settings.cat.updates"),
                     ] {
                         if ui.selectable_label(tab == tb, t(key)).clicked() {
                             tab = tb;
@@ -145,6 +171,7 @@ impl UiApp {
                         Tab::Recording => recording_form(ui, &mut s),
                         Tab::Ocr => self.ocr_form(ui, &mut s),
                         Tab::Privacy => privacy_form(ui, &mut s),
+                        Tab::Updates => self.updates_form(ui, &mut s),
                     });
                 });
             });

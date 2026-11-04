@@ -17,6 +17,7 @@ screenit-capture = { workspace = true }
 screenit-record = { workspace = true }
 screenit-library = { workspace = true }
 screenit-codecs = { workspace = true }
+screenit-update = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
