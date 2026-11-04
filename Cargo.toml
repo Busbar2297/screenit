@@ -78,3 +78,11 @@ debug = "line-tables-only"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Local SonarQube Community Build. Token stays in SONAR_TOKEN, never in this file.
+[workspace.metadata.sonar]
+project-key = "screenit"
+project-name = "screenIt"
+project-version = "0.2.11"
+host-url = "http://localhost:9000"
+exclusions = ["target/**"]
