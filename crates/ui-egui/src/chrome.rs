@@ -458,7 +458,7 @@ impl UiApp {
                     .on_hover_text(t("top.export.tip"))
                     .clicked()
                 {
-                    self.save_png();
+                    self.export_image();
                 }
                 if video.is_none()
                     && theme::pill_enabled(ui, Icon::Save, &t("top.save"), false, has_doc)
@@ -467,7 +467,7 @@ impl UiApp {
                 {
                     let name = file_name_of(&default_output(screenit_format::EXT));
                     if let Some(path) =
-                        ask_save_path("Save capture", &name, ("screenIt capture", "*.scit"))
+                        ask_save_path("Save capture", &name, &[("screenIt capture", "*.scit")])
                         && self.run("doc.save", json!({"path": path})).is_some()
                     {
                         self.saved_to("Capture", &path);
@@ -483,18 +483,34 @@ impl UiApp {
         });
     }
 
-    pub(crate) fn save_png(&mut self) {
+    /// Formats the Export dialog can write. The engine picks the encoder from the extension.
+    const EXPORT_FILTERS: &[(&str, &str)] = &[
+        ("PNG", "*.png"),
+        ("JPEG", "*.jpg;*.jpeg"),
+        ("PDF", "*.pdf"),
+        ("GIF", "*.gif"),
+        ("BMP", "*.bmp"),
+        ("TIFF", "*.tif;*.tiff"),
+        ("WebP", "*.webp"),
+    ];
+
+    pub(crate) fn export_image(&mut self) {
         let name = file_name_of(&default_output("png"));
-        if let Some(path) = ask_save_path("Export PNG", &name, ("PNG image", "*.png"))
-            && self.run("doc.export", json!({"path": path})).is_some()
-        {
-            self.saved_to("PNG", &path);
+        let Some(path) = ask_save_path(&t("top.export_png"), &name, Self::EXPORT_FILTERS) else {
+            return;
+        };
+        if self.run("doc.export", json!({"path": path})).is_some() {
+            let kind = std::path::Path::new(&path)
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_uppercase())
+                .unwrap_or_else(|| "Image".into());
+            self.saved_to(&kind, &path);
         }
     }
 
     fn export_mp4(&mut self, src: &str) {
         let name = file_name_of(src);
-        if let Some(path) = ask_save_path("Export MP4", &name, ("MP4 video", "*.mp4"))
+        if let Some(path) = ask_save_path("Export MP4", &name, &[("MP4 video", "*.mp4")])
             && self
                 .run("video.export", json!({"path": src, "output": path}))
                 .is_some()
@@ -514,6 +530,74 @@ impl UiApp {
     pub(crate) fn copy_doc(&mut self) {
         if self.run("edit.copy", json!({})).is_some() {
             self.status = t("status.copied");
+        }
+    }
+
+    /// Tools, the picture and the properties, in three columns that do not cover each other.
+    pub(crate) fn editor_columns(&mut self, ui: &mut egui::Ui) {
+        let rect = ui.max_rect();
+        let rtl = screenit_i18n::is_rtl();
+        const TOOLS: f32 = 58.0;
+        const PROPS: f32 = 248.0;
+        let (start_w, end_w) = if rtl { (PROPS, TOOLS) } else { (TOOLS, PROPS) };
+        let start_w = start_w.min(rect.width());
+        let end_w = end_w.min((rect.width() - start_w).max(0.0));
+        let start = Rect::from_min_size(rect.min, Vec2::new(start_w, rect.height()));
+        let end = Rect::from_min_size(
+            Pos2::new(rect.max.x - end_w, rect.min.y),
+            Vec2::new(end_w, rect.height()),
+        );
+        let picture = Rect::from_min_max(
+            Pos2::new(start.max.x, rect.min.y),
+            Pos2::new(end.min.x, rect.max.y),
+        );
+        let painter = ui.painter();
+        painter.rect_filled(start, 0.0, SURFACE);
+        painter.rect_filled(end, 0.0, SURFACE);
+        painter.vline(start.max.x, rect.y_range(), Stroke::new(1.0, BORDER));
+        painter.vline(end.min.x, rect.y_range(), Stroke::new(1.0, BORDER));
+        if rtl {
+            self.properties_column(ui, start);
+            self.tools_column(ui, end);
+        } else {
+            self.tools_column(ui, start);
+            self.properties_column(ui, end);
+        }
+        self.picture_column(ui, picture);
+    }
+
+    fn column(&self, ui: &mut egui::Ui, rect: Rect) -> egui::Ui {
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.shrink_clip_rect(rect);
+        child
+    }
+
+    fn tools_column(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        let mut child = self.column(ui, rect);
+        self.tool_palette(&mut child);
+    }
+
+    fn properties_column(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        let mut child = self.column(ui, rect);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(&mut child, |ui| {
+                egui::Frame::default()
+                    .inner_margin(egui::Margin::same(12))
+                    .show(ui, |ui| self.properties(ui));
+            });
+    }
+
+    fn picture_column(&mut self, ui: &mut egui::Ui, rect: Rect) {
+        let mut child = self.column(ui, rect);
+        if self.reading.is_some() {
+            self.text_view(&mut child);
+        } else {
+            crate::canvas::show(self, &mut child);
         }
     }
 
@@ -848,7 +932,7 @@ impl UiApp {
                     egui::Key::Y => {
                         self.run("edit.redo", json!({}));
                     }
-                    egui::Key::S => self.save_png(),
+                    egui::Key::S => self.export_image(),
                     egui::Key::Num0 => self.fit = true,
                     egui::Key::Num1 => {
                         self.zoom = 1.0;

@@ -178,7 +178,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Export As",
             "File",
             "Ctrl+Shift+S",
-            r#"{"path":str (png|jpg|gif|bmp|tiff|webp),"quality"?:1..100}"#,
+            r#"{"path":str (png|jpg|jpeg|gif|bmp|tif|tiff|webp|pdf),"quality"?:1..100}"#,
             need_doc,
             export,
         ),

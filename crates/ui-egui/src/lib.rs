@@ -680,11 +680,11 @@ impl UiApp {
 pub(crate) fn ask_save_path(
     title: &str,
     default_name: &str,
-    filter: (&str, &str),
+    filters: &[(&str, &str)],
 ) -> Option<String> {
     let dir = screenit_platform::shell::output_dir();
     let _ = std::fs::create_dir_all(&dir);
-    screenit_platform::shell::save_dialog(title, &dir, default_name, filter)
+    screenit_platform::shell::save_dialog(title, &dir, default_name, filters)
         .map(|p| p.to_string_lossy().into_owned())
 }
 
@@ -806,36 +806,9 @@ impl eframe::App for UiApp {
                         .frame(bar(theme::SURFACE))
                         .show(ui, |ui| self.video_bar(ui, &ctx));
                 }
-                let rtl = screenit_i18n::is_rtl();
-                let tools = if rtl {
-                    egui::Panel::right("tools")
-                } else {
-                    egui::Panel::left("tools")
-                };
-                let props = if rtl {
-                    egui::Panel::left("props")
-                } else {
-                    egui::Panel::right("props")
-                };
-                tools
-                    .frame(bar(theme::SURFACE))
-                    .exact_size(58.0)
-                    .resizable(false)
-                    .show(ui, |ui| self.tool_palette(ui));
-                props
-                    .frame(theme::panel_frame(theme::SURFACE, 14))
-                    .exact_size(236.0)
-                    .resizable(false)
-                    .show(ui, |ui| self.properties(ui));
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::CANVAS, 0))
-                    .show(ui, |ui| {
-                        if self.reading.is_some() {
-                            self.text_view(ui);
-                        } else {
-                            canvas::show(self, ui);
-                        }
-                    });
+                    .show(ui, |ui| self.editor_columns(ui));
             }
         }
     }

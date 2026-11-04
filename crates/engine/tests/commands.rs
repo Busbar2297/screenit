@@ -481,6 +481,45 @@ fn effects_canvas_trim_are_undoable_steps() {
 }
 
 #[test]
+fn export_writes_jpg_gif_bmp_tiff_webp() {
+    let dir = std::env::temp_dir().join("scit-export-formats");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (mut s, _) = fake_session(32, 24);
+    s.dispatch(
+        "doc.new",
+        &json!({"width": 32, "height": 24, "color": "#336699"}),
+    )
+    .unwrap();
+    let checks: &[(&str, &[u8])] = &[
+        ("jpg", &[0xFF, 0xD8]),
+        ("gif", b"GIF"),
+        ("bmp", b"BM"),
+        ("tiff", b"II"),
+        ("webp", b"RIFF"),
+        ("pdf", b"%PDF"),
+    ];
+    for (ext, magic) in checks {
+        let path = dir.join(format!("out.{ext}"));
+        s.dispatch(
+            "doc.export",
+            &json!({"path": path.to_str().unwrap(), "quality": 80}),
+        )
+        .unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            bytes.starts_with(magic),
+            "{ext} did not start with the expected header"
+        );
+    }
+    let bad = dir.join("nope.xyz");
+    assert!(
+        s.dispatch("doc.export", &json!({"path": bad.to_str().unwrap()}))
+            .is_err()
+    );
+}
+
+#[test]
 fn combine_batch_convert_and_pdf_export() {
     let dir = std::env::temp_dir().join("scit-m6");
     let _ = std::fs::remove_dir_all(&dir);

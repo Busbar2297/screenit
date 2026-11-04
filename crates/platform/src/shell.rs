@@ -33,44 +33,88 @@ pub fn output_dir() -> PathBuf {
         .join("screenIt")
 }
 
-/// Native Save As dialog. `filter` is (description, pattern), e.g. ("MP4 video", "*.mp4").
-/// Returns `None` when the user cancels or the dialog cannot be shown.
+/// Extensions listed in a dialog pattern such as `"*.jpg;*.jpeg"`.
+fn pattern_exts(pattern: &str) -> Vec<&str> {
+    pattern
+        .split(';')
+        .filter_map(|part| {
+            let ext = part.trim().trim_start_matches("*.").trim_start_matches('.');
+            if ext.is_empty() || ext.contains('*') {
+                None
+            } else {
+                Some(ext)
+            }
+        })
+        .collect()
+}
+
+/// If `path` does not already end in one of `pattern`'s extensions, give it the first one.
+/// Picking JPEG for `capture.png` therefore saves `capture.jpg`.
+pub fn with_chosen_extension(path: PathBuf, pattern: &str) -> PathBuf {
+    let exts = pattern_exts(pattern);
+    let Some(primary) = exts.first().copied() else {
+        return path;
+    };
+    let current = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if exts.iter().any(|e| e.eq_ignore_ascii_case(current)) {
+        return path;
+    }
+    let mut out = path;
+    out.set_extension(primary);
+    out
+}
+
+/// Native Save As dialog. Each filter is (description, pattern), e.g. `("JPEG", "*.jpg;*.jpeg")`.
+/// The chosen filter's extension is added when the typed name does not already use one of them.
+/// Returns `None` when the user cancels, no filter is given, or the dialog cannot be shown.
 pub fn save_dialog(
     title: &str,
     dir: &Path,
     file_name: &str,
-    filter: (&str, &str),
+    filters: &[(&str, &str)],
 ) -> Option<PathBuf> {
+    let first = filters.first()?;
     let (title, name) = (HSTRING::from(title), HSTRING::from(file_name));
-    let (fname, fspec) = (HSTRING::from(filter.0), HSTRING::from(filter.1));
-    let ext = filter.1.trim_start_matches("*.");
-    let ext = HSTRING::from(ext);
+    let names: Vec<HSTRING> = filters.iter().map(|f| HSTRING::from(f.0)).collect();
+    let specs: Vec<HSTRING> = filters.iter().map(|f| HSTRING::from(f.1)).collect();
+    let default_ext = HSTRING::from(pattern_exts(first.1).first().copied().unwrap_or(""));
     let dir = HSTRING::from(dir.as_os_str());
     let owner = crate::window::main_hwnd_raw().map(|h| HWND(h as *mut _));
+    let file_types: Vec<COMDLG_FILTERSPEC> = names
+        .iter()
+        .zip(specs.iter())
+        .map(|(n, s)| COMDLG_FILTERSPEC {
+            pszName: PCWSTR(n.as_ptr()),
+            pszSpec: PCWSTR(s.as_ptr()),
+        })
+        .collect();
     // SAFETY: standard IFileSaveDialog usage; every string outlives the calls that borrow it and
     // the returned path string is copied before being freed.
-    unsafe {
+    let chosen = unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let dlg: IFileSaveDialog =
             CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER).ok()?;
         let _ = dlg.SetTitle(&title);
-        let specs = [COMDLG_FILTERSPEC {
-            pszName: PCWSTR(fname.as_ptr()),
-            pszSpec: PCWSTR(fspec.as_ptr()),
-        }];
-        let _ = dlg.SetFileTypes(&specs);
-        let _ = dlg.SetDefaultExtension(&ext);
+        let _ = dlg.SetFileTypes(&file_types);
+        let _ = dlg.SetFileTypeIndex(1);
+        let _ = dlg.SetDefaultExtension(&default_ext);
         let _ = dlg.SetFileName(&name);
         if let Ok(folder) = SHCreateItemFromParsingName::<_, _, IShellItem>(&dir, None) {
             let _ = dlg.SetFolder(&folder);
         }
         dlg.Show(owner).ok()?; // cancelled -> error
+        let index = dlg.GetFileTypeIndex().unwrap_or(1);
         let item = dlg.GetResult().ok()?;
         let p = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
         let s = p.to_string().ok();
         CoTaskMemFree(Some(p.0 as *const _));
-        s.map(PathBuf::from)
-    }
+        s.map(|s| (PathBuf::from(s), index))
+    }?;
+    let pattern = filters
+        .get(chosen.1.saturating_sub(1) as usize)
+        .unwrap_or(first)
+        .1;
+    Some(with_chosen_extension(chosen.0, pattern))
 }
 
 /// True for a plain `https://` address with no quotes or control characters.
@@ -125,6 +169,30 @@ mod tests {
         assert!(!https_url("https://evil.example/\" & calc"));
         assert!(!https_url("https://"));
         assert!(!open_url("notepad.exe"));
+    }
+
+    #[test]
+    fn chosen_filter_extension_replaces_a_different_one() {
+        let png = PathBuf::from(r"C:\Pictures\screenIt\capture.png");
+        assert_eq!(with_chosen_extension(png.clone(), "*.png"), png);
+        assert_eq!(
+            with_chosen_extension(png, "*.jpg;*.jpeg")
+                .extension()
+                .unwrap(),
+            "jpg"
+        );
+        assert_eq!(
+            with_chosen_extension(PathBuf::from("notes"), "*.pdf")
+                .extension()
+                .unwrap(),
+            "pdf"
+        );
+        assert_eq!(
+            with_chosen_extension(PathBuf::from("photo.jpeg"), "*.jpg;*.jpeg")
+                .extension()
+                .unwrap(),
+            "jpeg"
+        );
     }
 
     #[test]

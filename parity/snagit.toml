@@ -746,15 +746,17 @@ id = "exp.jpg"
 group = "Export"
 title = "JPG"
 tier = 0
-status = "partial"
+status = "done"
 commands = ["doc.export"]
+tests = ["commands::export_writes_jpg_gif_bmp_tiff_webp"]
 [[row]]
 id = "exp.other"
 group = "Export"
 title = "GIF, BMP, TIFF, WebP"
 tier = 2
-status = "partial"
+status = "done"
 commands = ["doc.export"]
+tests = ["commands::export_writes_jpg_gif_bmp_tiff_webp"]
 [[row]]
 id = "exp.pdf"
 group = "Export"

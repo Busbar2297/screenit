@@ -146,6 +146,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## Object edit engine
 - doc: Object.rotation, text boxes (width/height), rotation-aware bounds/hit-test, Object::resize with anchor. vector: rotated drawing via scratch raster. engine: editor.object.{text,resize,rotate,endpoint}. tests in engine/tests/object_edit.rs.
 
+## 2026-11-04 - Editor columns and image export
+- Opening an image drew the properties panel on top of the picture. The editor now lays the tools, the picture and the properties in three columns that do not cover each other, and each column clips its own painting.
+- Export (Ctrl+S) asks for PNG, JPEG, PDF, GIF, BMP, TIFF or WebP. The chosen type sets the file extension, and doc.export already encodes all of them.
+
 ## 2026-11-03 - Release 0.2.10
 - Version bump for selectable, resizable and rotatable annotations, text boxes, and joined Arabic annotation text.
 
