@@ -201,6 +201,95 @@ fn a_stuck_step_is_repaired_from_the_window_in_front() {
 }
 
 #[test]
+fn explore_builds_steps_that_worked_and_asks_when_stuck() {
+    use crate::explore::{Answer, ExploreOpts, empty_script, explore};
+    let (w, rig, _) = app();
+    let llm = FakeLlm::new(vec![
+        Ok(r#"thinking... {"title":"Notes","chapters":[{"title":"Write","goal":"an editor is open"},{"title":"Save","goal":"the note is saved"}]}"#.into()),
+        Ok(r#"{"narration":"Open a new note.","do":"click","id":1}"#.into()),
+        Ok(r#"{"done":true}"#.into()),
+        Ok(r#"{"narration":"Click a ghost.","do":"click","id":99}"#.into()),
+        Ok(r#"{"ask":"Which button saves?"}"#.into()),
+        Ok(r#"{"narration":"Press Save.","do":"click","id":2}"#.into()),
+        Ok(r#"{"done":true}"#.into()),
+    ]);
+    let mut s = empty_script("save a note", script().app);
+    let opts = ExploreOpts {
+        max_steps: 10,
+        max_misses: 3,
+        chat: llm.clone(),
+        copts: ChatOptions::default(),
+    };
+    let mut asked = Vec::new();
+    let mut events = Vec::new();
+    explore(
+        &mut s,
+        &rig,
+        guard(),
+        win(&rig),
+        &opts,
+        &mut |e| events.push(e),
+        &mut |q| {
+            asked.push(q.to_string());
+            Ok(Answer::Hint("the Save button".into()))
+        },
+    )
+    .unwrap();
+    assert_eq!(asked, vec!["Which button saves?".to_string()]);
+    assert_eq!(s.chapters.len(), 2);
+    assert_eq!(s.step_count(), 2);
+    assert_eq!(s.chapters[0].steps[0].id, "c1s1");
+    assert!(w.has("Editor") && w.has("Saved"));
+    let calls = llm.calls();
+    let after_ghost = &calls[4][1].content;
+    assert!(
+        after_ghost.contains("#99 is not in the control list"),
+        "{after_ghost}"
+    );
+    let after_hint = &calls[5][1].content;
+    assert!(after_hint.contains("the Save button"), "{after_hint}");
+    assert!(after_hint.contains(" at "), "real positions are listed");
+}
+
+#[test]
+fn explore_asks_after_repeated_misses_and_can_finish() {
+    use crate::explore::{Answer, ExploreOpts, empty_script, explore};
+    let (_, rig, _) = app();
+    let ghost = r#"{"narration":"x","do":"click","id":77}"#;
+    let llm = FakeLlm::new(vec![
+        Ok(r#"{"title":"T","chapters":[{"title":"A","goal":"g"}]}"#.into()),
+        Ok(r#"{"narration":"Open a new note.","do":"click","id":1}"#.into()),
+        Ok(ghost.into()),
+        Ok(ghost.into()),
+        Ok(ghost.into()),
+    ]);
+    let mut s = empty_script("g", script().app);
+    let opts = ExploreOpts {
+        max_steps: 10,
+        max_misses: 3,
+        chat: llm,
+        copts: ChatOptions::default(),
+    };
+    let mut asked = 0;
+    explore(
+        &mut s,
+        &rig,
+        guard(),
+        win(&rig),
+        &opts,
+        &mut |_| {},
+        &mut |q| {
+            asked += 1;
+            assert!(q.contains("stuck"), "{q}");
+            Ok(Answer::Finish)
+        },
+    )
+    .unwrap();
+    assert_eq!(asked, 1);
+    assert_eq!(s.step_count(), 1);
+}
+
+#[test]
 fn repairs_are_bounded() {
     let (_, rig, _) = app();
     let mut s = script();

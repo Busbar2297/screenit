@@ -226,3 +226,8 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Engine: ui.snapshot, input.*, app.launch, tutor.{plan,script.get/set,save,load,rehearse,perform,produce,status,wait,abort}; render in tutor_render.rs. UI: AI tutorial panel (View::Tutorial), compact bar widened for the extra tile.
 - Fixture: --form mode (real Win32 controls); e2e tutor_e2e plans-free rehearse/perform/produce passes on a real desktop.
 - Open: produce is slow (frame-by-frame decode); no TTS narration yet; only LM Studio as brain; moving the mouse during a run aborts it by design.
+
+## 2026-11-05 - Tutorial built by exploring, asking when stuck
+- Plan now runs `tutor.explore`: the model drafts chapter goals, then picks one move at a time from the live UIA tree and a screenshot. A move is kept as a script step only if the window changed, so steps are observed, not guessed.
+- After repeated misses, when the model wants to ask, or before a risky step, the run pauses and the panel shows the question: Answer (hint), I did it myself, Skip chapter, Finish here (`tutor.answer`; `question` in `tutor.status`). A partial script is kept on Finish or failure.
+- Open: exploring is slow on a 4096-token context (one model call per move); untested against Word here.

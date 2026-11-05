@@ -113,23 +113,29 @@ pub fn extract_json(text: &str) -> Option<String> {
 /// The last JSON object in a reply that has a top-level `key` (`chapters` for a script, `action`
 /// for a step). A stray `{"type":...}` quoted while the model thinks aloud is never taken for it.
 fn extract_keyed(text: &str, key: &str) -> Option<String> {
+    extract_any(text, &[key])
+}
+
+/// The last JSON object in a reply that has any of `keys` at the top level.
+pub(crate) fn extract_any(text: &str, keys: &[&str]) -> Option<String> {
     let stripped = strip_think(text);
-    keyed(&stripped, key).or_else(|| {
+    keyed(&stripped, keys).or_else(|| {
         if stripped == text {
             None
         } else {
-            keyed(text, key)
+            keyed(text, keys)
         }
     })
 }
 
-fn keyed(text: &str, key: &str) -> Option<String> {
+fn keyed(text: &str, keys: &[&str]) -> Option<String> {
     let mut found = None;
     let mut rest = text;
     while let Some(i) = rest.find('{') {
         let slice = &rest[i..];
         let hit = balanced(slice).filter(|obj| {
-            serde_json::from_str::<serde_json::Value>(obj).is_ok_and(|v| v.get(key).is_some())
+            serde_json::from_str::<serde_json::Value>(obj)
+                .is_ok_and(|v| keys.iter().any(|k| v.get(k).is_some()))
         });
         if let Some(obj) = hit {
             found = Some(obj.to_string());

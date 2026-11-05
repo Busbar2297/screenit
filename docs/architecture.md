@@ -45,7 +45,11 @@ Only `screenit-platform` may use `unsafe`. Everything else is `forbid`.
 and the production plan behind traits (`UiTree`, `InputDriver`, `AppLauncher`, `LlmChat`, `Pace`).
 `platform::automation` implements them with UI Automation and SendInput; `llm` implements
 `LlmChat` for LM Studio. Engine commands `ui.*`, `input.*`, `app.launch` and `tutor.*` run
-long steps as background jobs (`tutor.status`, `tutor.wait`, `tutor.abort`). Flow: plan, rehearse
+long steps as background jobs (`tutor.status`, `tutor.wait`, `tutor.abort`). `tutor.explore`
+(`tutor::explore`) builds the script from the live app instead of guessing it: a storyboard of
+chapters, then one model move per turn on the current UIA tree plus a screenshot, kept only when
+the window changed; when stuck or before a risky step it asks the user (`tutor.answer`).
+Flow: explore (or plan), rehearse
 (a failed step is repaired from a screenshot of the window in front, and the corrected step is
 written back into the script), perform (one recording per chapter), produce (chapter cards,
 idle trim, zoom, click rings, captions, SRT).

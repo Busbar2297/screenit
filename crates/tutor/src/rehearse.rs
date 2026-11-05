@@ -83,6 +83,10 @@ pub enum Event {
     ChapterChecked {
         index: usize,
     },
+    /// Exploring: the model needs the user before it can go on.
+    Ask {
+        question: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,7 +96,7 @@ pub struct Report {
     pub chapters_checked: usize,
 }
 
-fn pin(step: &mut Step, rect: Option<Rect>) {
+pub(crate) fn pin(step: &mut Step, rect: Option<Rect>) {
     step.verified_rect = rect;
     let Some(r) = rect else { return };
     let fix = |s: &mut Selector| {
@@ -119,7 +123,7 @@ fn pin(step: &mut Step, rect: Option<Rect>) {
 
 /// Point the player at a dialog, menu or other window that appeared in front of the target.
 /// screenIt's own window is never followed: it is a different process and is not listed.
-fn follow_front(player: &mut Player) -> Option<String> {
+pub(crate) fn follow_front(player: &mut Player) -> Option<String> {
     let front = player.rig.ui.foreground()?;
     if front.hwnd == 0 || front.hwnd == player.window.hwnd {
         return None;

@@ -13,6 +13,7 @@
 )]
 
 mod error;
+pub mod explore;
 pub mod fakes;
 pub mod keys;
 pub mod path;

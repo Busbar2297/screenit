@@ -22,6 +22,7 @@ pub(crate) struct TutorUi {
     script: Option<Value>,
     status: Value,
     polled: Option<Instant>,
+    answer: String,
 }
 
 impl Default for TutorUi {
@@ -41,6 +42,7 @@ impl Default for TutorUi {
             script: None,
             status: json!({}),
             polled: None,
+            answer: String::new(),
         }
     }
 }
@@ -55,6 +57,8 @@ enum Act {
     Load,
     /// Push the edited script back, keeping the rehearsal marks.
     Edit,
+    /// Reply to the model's question: `hint`, `did_it`, `skip` or `finish`.
+    Answer(&'static str),
 }
 
 fn file_stem(title: &str) -> String {
@@ -113,6 +117,7 @@ fn event_line(e: &Value) -> String {
             ],
         ),
         "step" => tf("tutor.ev.step", &[("id", &s("step_id"))]),
+        "ask" => tf("tutor.ev.ask", &[("q", &s("question"))]),
         "repair" => tf(
             "tutor.ev.repair",
             &[
@@ -166,7 +171,14 @@ impl UiApp {
                 if !u.window.trim().is_empty() {
                     p["window_title"] = json!(u.window.trim());
                 }
-                ("tutor.plan", p)
+                ("tutor.explore", p)
+            }
+            Act::Answer(action) => {
+                let text = std::mem::take(&mut self.tutor_ui.answer);
+                (
+                    "tutor.answer",
+                    json!({"action": action, "text": text.trim()}),
+                )
             }
             Act::Rehearse => ("tutor.rehearse", json!({})),
             Act::Perform => (
@@ -287,6 +299,9 @@ impl UiApp {
                         .color(MUTED),
                 );
                 ui.add_space(6.0);
+                if let Some(a) = self.tutor_question(ui) {
+                    act = Some(a);
+                }
                 self.tutor_status_lines(ui);
                 ui.add_space(10.0);
                 ui.separator();
@@ -328,6 +343,51 @@ impl UiApp {
                 ui.end_row();
             });
         });
+    }
+
+    /// The model's open question, with a box for the reply.
+    fn tutor_question(&mut self, ui: &mut egui::Ui) -> Option<Act> {
+        let q = self.tutor_ui.status["question"].as_str()?.to_string();
+        let mut act = None;
+        egui::Frame::new()
+            .stroke(egui::Stroke::new(1.5, OK))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::same(10))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    egui::RichText::new(t("tutor.question_title"))
+                        .strong()
+                        .color(OK),
+                );
+                ui.label(egui::RichText::new(q).size(14.0).color(TEXT));
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.tutor_ui.answer)
+                        .hint_text(t("tutor.answer_hint"))
+                        .desired_width(f32::INFINITY),
+                );
+                let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                crate::h_row(ui, |ui| {
+                    let has_text = !self.tutor_ui.answer.trim().is_empty();
+                    if theme::pill_enabled(ui, Icon::Step, &t("tutor.answer"), true, has_text)
+                        .clicked()
+                        || (entered && has_text)
+                    {
+                        act = Some(Act::Answer("hint"));
+                    }
+                    if theme::pill(ui, Icon::Play, &t("tutor.did_it"), false).clicked() {
+                        act = Some(Act::Answer("did_it"));
+                    }
+                    if theme::pill(ui, Icon::Step, &t("tutor.skip"), false).clicked() {
+                        act = Some(Act::Answer("skip"));
+                    }
+                    if theme::pill(ui, Icon::Stop, &t("tutor.finish"), false).clicked() {
+                        act = Some(Act::Answer("finish"));
+                    }
+                });
+            });
+        ui.add_space(6.0);
+        act
     }
 
     fn tutor_status_lines(&self, ui: &mut egui::Ui) {
@@ -379,7 +439,7 @@ impl UiApp {
                             .color(ERR)
                             .size(13.0),
                     );
-                } else if s["last_phase"] == "planning" {
+                } else if s["last_phase"] == "planning" || s["last_phase"] == "exploring" {
                     let r = &s["result"];
                     let n = |k: &str| r[k].as_u64().unwrap_or(0).to_string();
                     ui.label(

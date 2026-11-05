@@ -7,6 +7,7 @@ use crate::tutor_render::render_video;
 use crate::{CmdResult, CommandError, CommandSpec, Session, always};
 use screenit_geom::Rect;
 use screenit_record::{Codec, OutputSize, RecordConfig, Recorder};
+use screenit_tutor::explore::{Answer, ExploreOpts, empty_script, explore};
 use screenit_tutor::perform::{ChapterRecorder, Performance, Segment, Stage, perform};
 use screenit_tutor::plan::{parse_script, plan_messages};
 use screenit_tutor::produce::{Plan, ProduceOpts};
@@ -32,6 +33,9 @@ struct Inner {
     result: Option<Value>,
     started: Option<std::time::Instant>,
     took_ms: u64,
+    /// Exploring: the model's open question for the user, and the reply once given.
+    question: Option<String>,
+    answer: Option<Answer>,
     /// Phase of the job that ran last, so the panel can say what just finished.
     last_phase: String,
 }
@@ -268,6 +272,8 @@ fn spawn_job(
         g.result = None;
         g.events.clear();
         g.started = Some(std::time::Instant::now());
+        g.question = None;
+        g.answer = None;
         g.last_phase = phase.into();
     }
     sh.abort.store(false, Ordering::SeqCst);
@@ -281,6 +287,7 @@ fn spawn_job(
             Err(_) => g.error = Some("internal error (recovered)".into()),
         }
         g.running = false;
+        g.question = None;
         g.took_ms = g
             .started
             .map(|t| t.elapsed().as_millis() as u64)
@@ -786,6 +793,7 @@ fn status(s: &mut Session, p: &Value) -> CmdResult {
     Ok(json!({
         "phase": g.phase, "running": g.running, "error": g.error, "result": g.result,
         "last_phase": g.last_phase,
+        "question": g.question,
         "elapsed_ms": if g.running {
             g.started.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0)
         } else {
@@ -817,6 +825,123 @@ fn wait(s: &mut Session, p: &Value) -> CmdResult {
     }
     drop(g);
     status(s, &json!({}))
+}
+
+/// Block the explore job until the user answers in the panel (or presses Stop).
+fn wait_answer(sh: &TutorShared, question: &str) -> TutorResult<Answer> {
+    let mut g = sh.lock();
+    g.question = Some(question.to_string());
+    g.answer = None;
+    loop {
+        if sh.abort.load(Ordering::SeqCst) {
+            g.question = None;
+            return Err(TutorError::Aborted("stopped by the user".into()));
+        }
+        if let Some(a) = g.answer.take() {
+            g.question = None;
+            return Ok(a);
+        }
+        g = sh
+            .cv
+            .wait_timeout(g, std::time::Duration::from_millis(200))
+            .map(|(g, _)| g)
+            .unwrap_or_else(|e| e.into_inner().0);
+    }
+}
+
+fn explore_cmd(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(
+        p,
+        &[
+            "goal",
+            "launch",
+            "args",
+            "window_title",
+            "max_steps",
+            "allow_destructive",
+        ],
+    )?;
+    let goal = a.str("goal")?.trim().to_string();
+    if goal.is_empty() || goal.chars().count() > 2000 {
+        return Err(CommandError::Params(
+            "goal must be 1..=2000 characters".into(),
+        ));
+    }
+    let mut app = app_of(&a)?;
+    let rig = rig(s)?;
+    if app.launch.is_empty() && app.window_title.is_empty() {
+        app.window_title = rig
+            .ui
+            .other_windows()
+            .into_iter()
+            .next()
+            .map(|w| w.title)
+            .ok_or_else(|| {
+                CommandError::Params(
+                    "no other window is open. Open the app, or set its window title.".into(),
+                )
+            })?;
+    }
+    let max_steps = a.opt_u32("max_steps")?.unwrap_or(30).clamp(1, 200);
+    let allow = a.bool("allow_destructive", false)?;
+    let (chat, copts) = chat_setup(s)
+        .ok_or_else(|| CommandError::Disabled("no language model available".into()))?;
+    spawn_job(s, "exploring", move |sh| {
+        let w = rig.window(&app)?;
+        let w = prepare(&rig, &w)?;
+        if app.window_title.is_empty() {
+            app.window_title = w.title.clone();
+        }
+        let mut guard = Guard::new(w.pid, w.hwnd, sh.abort.clone());
+        guard.allow_destructive = allow;
+        let opts = ExploreOpts {
+            max_steps,
+            max_misses: 3,
+            chat,
+            copts,
+        };
+        let mut script = empty_script(&goal, app);
+        let r = explore(
+            &mut script,
+            &rig,
+            guard,
+            w,
+            &opts,
+            &mut |e| sh.event(serde_json::to_value(&e).unwrap_or(Value::Null)),
+            &mut |q| wait_answer(sh, q),
+        );
+        let out = json!({"title": script.title, "chapters": script.chapters.len(), "steps": script.step_count()});
+        if !script.chapters.is_empty() && (r.is_ok() || script.validate().is_ok()) {
+            sh.lock().script = Some(script);
+        }
+        r?;
+        Ok(out)
+    })
+}
+
+fn answer_cmd(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["text", "action"])?;
+    let text = a.opt_str("text")?.unwrap_or("").trim().to_string();
+    let ans = match a.opt_str("action")?.unwrap_or("hint") {
+        "hint" => Answer::Hint(text.chars().take(500).collect()),
+        "did_it" => Answer::DidIt,
+        "skip" => Answer::SkipChapter,
+        "finish" => Answer::Finish,
+        other => {
+            return Err(CommandError::Params(format!(
+                "action must be hint, did_it, skip or finish, not `{other}`"
+            )));
+        }
+    };
+    let mut g = s.tutor.lock();
+    if g.question.is_none() {
+        return Err(CommandError::Failed(
+            "nothing is waiting for an answer".into(),
+        ));
+    }
+    g.answer = Some(ans);
+    s.tutor.cv.notify_all();
+    Ok(json!({"answered": true}))
 }
 
 fn abort(s: &mut Session, p: &Value) -> CmdResult {
@@ -894,6 +1019,20 @@ pub fn specs() -> Vec<CommandSpec> {
             "Tutorial",
             r#"{"goal":str,"launch"?:str,"args"?:str,"window_title"?:str,"audience"?:str,"max_steps"?:int}"#,
             plan,
+        ),
+        c(
+            "tutor.explore",
+            "Explore Tutorial",
+            "Tutorial",
+            r#"{"goal":str,"launch"?:str,"args"?:str,"window_title"?:str,"max_steps"?:int,"allow_destructive"?:bool}"#,
+            explore_cmd,
+        ),
+        c(
+            "tutor.answer",
+            "Answer Tutorial Question",
+            "Tutorial",
+            r#"{"text"?:str,"action"?:hint|did_it|skip|finish}"#,
+            answer_cmd,
         ),
         c(
             "tutor.script.get",
@@ -1229,6 +1368,49 @@ mod tests {
             s.dispatch("tutor.script.get", &json!({})).unwrap()["goal"],
             "write a note"
         );
+    }
+
+    #[test]
+    fn explore_waits_for_the_users_answer() {
+        let w = world();
+        let llm = FakeLlm::new(vec![
+            Ok(r#"{"title":"Notes","chapters":[{"title":"Write","goal":"editor open"}]}"#.into()),
+            Ok(r#"{"ask":"Which button starts a note?"}"#.into()),
+            Ok(r#"{"narration":"Open a new note.","do":"click","id":1}"#.into()),
+            Ok(r#"{"done":true}"#.into()),
+        ]);
+        let mut s = session(&w, Some(llm));
+        assert!(
+            s.dispatch("tutor.answer", &json!({"text": "x"})).is_err(),
+            "nothing to answer yet"
+        );
+        s.dispatch(
+            "tutor.explore",
+            &json!({"goal": "write a note", "window_title": "notes"}),
+        )
+        .unwrap();
+        let mut asked = Value::Null;
+        for _ in 0..200 {
+            let st = s.dispatch("tutor.status", &json!({})).unwrap();
+            if !st["question"].is_null() {
+                asked = st["question"].clone();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(asked, "Which button starts a note?");
+        assert!(
+            s.dispatch("tutor.answer", &json!({"action": "nope"}))
+                .is_err()
+        );
+        s.dispatch("tutor.answer", &json!({"text": "the New button"}))
+            .unwrap();
+        let st = done(&mut s);
+        assert_eq!(st["error"], Value::Null, "{st}");
+        assert_eq!(st["result"]["steps"], 1);
+        assert_eq!(st["last_phase"], "exploring");
+        let sc = s.dispatch("tutor.script.get", &json!({})).unwrap();
+        assert_eq!(sc["chapters"][0]["checked"], true);
     }
 
     #[test]
