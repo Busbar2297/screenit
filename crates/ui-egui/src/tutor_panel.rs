@@ -181,24 +181,68 @@ impl UiApp {
                 ui.label(egui::RichText::new(model_line).size(13.0).color(MUTED));
                 ui.add_space(10.0);
                 self.tutor_form(ui, running);
+                if self.tutor_ui.launch.trim().is_empty() && self.tutor_ui.window.trim().is_empty()
+                {
+                    ui.label(
+                        egui::RichText::new(t("tutor.open_target"))
+                            .size(12.0)
+                            .color(MUTED),
+                    );
+                }
                 ui.add_space(8.0);
                 crate::h_row(ui, |ui| {
-                    let goal_ok = !self.tutor_ui.goal.trim().is_empty()
-                        && !(self.tutor_ui.launch.trim().is_empty()
-                            && self.tutor_ui.window.trim().is_empty());
-                    let btn = |ui: &mut egui::Ui, icon, key: &str, primary, on: bool| {
-                        theme::pill_enabled(ui, icon, &t(key), primary, on && !running).clicked()
-                    };
-                    if btn(ui, Icon::Step, "tutor.plan", true, goal_ok) {
+                    let goal_ok = !self.tutor_ui.goal.trim().is_empty();
+                    let open = self.tutor_ui.launch.trim().is_empty()
+                        && self.tutor_ui.window.trim().is_empty();
+                    let mut plan = theme::pill_enabled(
+                        ui,
+                        Icon::Step,
+                        &t("tutor.plan"),
+                        true,
+                        goal_ok && !running,
+                    );
+                    if !goal_ok {
+                        plan = plan.on_hover_text(t("tutor.need_goal"));
+                    } else if open {
+                        plan = plan.on_hover_text(t("tutor.open_target"));
+                    }
+                    if plan.clicked() {
                         act = Some(Act::Plan);
                     }
-                    if btn(ui, Icon::Play, "tutor.rehearse", false, has_script) {
+                    let mut rehearse = theme::pill_enabled(
+                        ui,
+                        Icon::Play,
+                        &t("tutor.rehearse"),
+                        false,
+                        has_script && !running,
+                    );
+                    let mut record = theme::pill_enabled(
+                        ui,
+                        Icon::Record,
+                        &t("tutor.perform"),
+                        false,
+                        has_script && !running,
+                    );
+                    let mut produce = theme::pill_enabled(
+                        ui,
+                        Icon::Video,
+                        &t("tutor.produce"),
+                        false,
+                        has_script && !running,
+                    );
+                    if !has_script {
+                        let why = t("tutor.need_script");
+                        rehearse = rehearse.on_hover_text(why.clone());
+                        record = record.on_hover_text(why.clone());
+                        produce = produce.on_hover_text(why);
+                    }
+                    if rehearse.clicked() {
                         act = Some(Act::Rehearse);
                     }
-                    if btn(ui, Icon::Record, "tutor.perform", false, has_script) {
+                    if record.clicked() {
                         act = Some(Act::Perform);
                     }
-                    if btn(ui, Icon::Video, "tutor.produce", false, has_script) {
+                    if produce.clicked() {
                         act = Some(Act::Produce);
                     }
                     if running && theme::pill(ui, Icon::Stop, &t("tutor.abort"), true).clicked() {

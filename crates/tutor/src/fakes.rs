@@ -169,6 +169,14 @@ impl UiTree for FakeWorld {
         }
         .finish())
     }
+    fn other_windows(&self) -> Vec<WindowInfo> {
+        let w = lock(&self.w);
+        if w.alive {
+            vec![w.window.clone()]
+        } else {
+            Vec::new()
+        }
+    }
     fn foreground(&self) -> Option<WindowInfo> {
         let w = lock(&self.w);
         Some(WindowInfo {

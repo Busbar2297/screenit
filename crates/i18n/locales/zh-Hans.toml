@@ -204,3 +204,6 @@
 "tutor.model" = "Language model: {model}. This is the same model Grab text uses."
 "tutor.model_missing" = "No language model is set. Choose it in Settings, under Grab text."
 "tutor.app_hint" = "notepad.exe or a full path. Leave empty when the app is already open."
+"tutor.need_goal" = "Write what the tutorial should teach."
+"tutor.need_script" = "Plan a script first. Rehearse, Record and Produce use that script."
+"tutor.open_target" = "No app path and no window title: Plan uses the frontmost window you left open."

@@ -315,6 +315,10 @@ impl UiTree for Win32Ui {
         .finish())
     }
 
+    fn other_windows(&self) -> Vec<WindowInfo> {
+        top_windows()
+    }
+
     fn foreground(&self) -> Option<WindowInfo> {
         // SAFETY: plain query.
         let h = unsafe { GetForegroundWindow() };

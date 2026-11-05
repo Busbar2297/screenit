@@ -183,6 +183,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Plan an app that is already open
+- Plan is enabled from the goal alone. With App to launch and Window title both empty, it uses the frontmost other window. Rehearse, Record and Produce stay off until a script exists, and say so on hover.
+
 ## 2026-11-05 - Tutorial plan: model name and no Explorer
 - Plan uses the Grab text model (`settings.ocr.llm_model`) and now says which model replied. Thinking tags and a JSON object buried after an unclosed brace are accepted. A bare app name focuses that window; only a document path or a URL goes to Explorer.
 - Open: Gemma may still answer in prose. The failure now quotes the start of that reply.

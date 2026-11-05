@@ -117,6 +117,10 @@ pub trait UiTree: Send + Sync {
     fn snapshot(&self, window: u64) -> TutorResult<UiSnapshot>;
     /// The window that currently has keyboard focus.
     fn foreground(&self) -> Option<WindowInfo>;
+    /// Other apps' windows, front to back. The first is the one left open behind screenIt.
+    fn other_windows(&self) -> Vec<WindowInfo> {
+        Vec::new()
+    }
     /// Whether `window` still exists.
     fn is_alive(&self, window: u64) -> bool;
 }

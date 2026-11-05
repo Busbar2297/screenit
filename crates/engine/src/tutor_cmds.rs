@@ -348,15 +348,23 @@ fn plan(s: &mut Session, p: &Value) -> CmdResult {
             "goal must be 1..=2000 characters".into(),
         ));
     }
-    let app = app_of(&a)?;
+    let mut app = app_of(&a)?;
+    let rig = rig(s)?;
     if app.launch.is_empty() && app.window_title.is_empty() {
-        return Err(CommandError::Params(
-            "give `launch` and/or `window_title` so the app can be found".into(),
-        ));
+        app.window_title = rig
+            .ui
+            .other_windows()
+            .into_iter()
+            .next()
+            .map(|w| w.title)
+            .ok_or_else(|| {
+                CommandError::Params(
+                    "no other window is open. Open the app, or set its window title.".into(),
+                )
+            })?;
     }
     let audience = a.opt_str("audience")?.unwrap_or("").to_string();
     let max_steps = a.opt_u32("max_steps")?.unwrap_or(30).clamp(1, 200);
-    let rig = rig(s)?;
     let (chat, copts) = chat_setup(s)
         .ok_or_else(|| CommandError::Disabled("no language model available".into()))?;
     spawn_job(s, "planning", move |sh| {
@@ -1212,7 +1220,18 @@ mod tests {
             s.dispatch("tutor.plan", &json!({"goal": "", "window_title": "n"}))
                 .is_err()
         );
+        s.dispatch("tutor.plan", &json!({"goal": "g"})).unwrap();
+        let open = done(&mut s);
+        assert!(
+            open["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("language model"),
+            "{open}"
+        );
+        w.set_alive(false);
         assert!(s.dispatch("tutor.plan", &json!({"goal": "g"})).is_err());
+        w.set_alive(true);
         s.dispatch("tutor.plan", &json!({"goal": "g", "window_title": "notes"}))
             .unwrap();
         let st = done(&mut s);
