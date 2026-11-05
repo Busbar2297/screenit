@@ -381,7 +381,12 @@ fn plan(s: &mut Session, p: &Value) -> CmdResult {
         let mut last_reply = String::new();
         for attempt in 0..2 {
             sh.event(json!({"event": "asking_model", "model": model, "attempt": attempt + 1}));
-            let reply = chat.chat(&msgs, &copts)?;
+            let reply = screenit_tutor::wait_for(&*rig.input, &sh.abort, {
+                let chat = Arc::clone(&chat);
+                let msgs = msgs.clone();
+                let copts = copts.clone();
+                move || chat.chat(&msgs, &copts)
+            })??;
             last_reply = reply.clone();
             match parse_script(&reply, &goal, app.clone()) {
                 Ok(script) => {
@@ -507,7 +512,7 @@ fn rehearse_cmd(s: &mut Session, p: &Value) -> CmdResult {
         let opts = RehearseOpts {
             from_chapter: from,
             max_repairs: repairs,
-            chat: chat.as_ref().map(|(c, o)| (&**c, o.clone())),
+            chat: chat.as_ref().map(|(c, o)| (Arc::clone(c), o.clone())),
         };
         let r = rehearse(&mut script, &rig, guard, w, &opts, &mut |e| {
             sh.event(serde_json::to_value(&e).unwrap_or(Value::Null));
@@ -801,6 +806,9 @@ fn wait(s: &mut Session, p: &Value) -> CmdResult {
 fn abort(s: &mut Session, p: &Value) -> CmdResult {
     Args::new(p, &[])?;
     s.tutor.abort.store(true, Ordering::SeqCst);
+    if let Some(input) = &s.services.input {
+        input.user_stop();
+    }
     Ok(json!({"abort": true, "running": s.tutor.lock().running}))
 }
 

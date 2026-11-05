@@ -26,6 +26,7 @@ pub mod script;
 mod traits;
 
 pub use error::{TutorError, TutorResult};
+pub use rehearse::wait_for;
 pub use traits::*;
 
 #[cfg(test)]

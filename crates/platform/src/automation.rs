@@ -12,8 +12,9 @@ use screenit_tutor::{
     AppLauncher, InputDriver, MouseButton, TutorError, TutorResult, UiElement, UiSnapshot, UiTree,
     WindowInfo,
 };
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{
@@ -336,10 +337,67 @@ impl UiTree for Win32Ui {
 /// Cursor deviation (pixels) from where the driver put it that counts as the user taking over.
 const TAKEOVER_PX: i64 = 14;
 
-pub struct Win32Input {
-    /// Packed last position set by this driver (`x << 32 | y`), or `NONE`.
+struct Watch {
+    /// Packed cursor position this driver last claimed (`x << 32 | y`), or `NONE`.
     last: AtomicI64,
     tripped: AtomicBool,
+    /// Ignore takeover samples until this millisecond, so our own jump can land.
+    ignore_until: AtomicU64,
+    started: Instant,
+    abort: Mutex<Option<Arc<AtomicBool>>>,
+}
+
+pub struct Win32Input {
+    watch: Arc<Watch>,
+}
+
+fn cursor_pos() -> Option<(i32, i32)> {
+    let mut p = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+    // SAFETY: valid out pointer.
+    let ok = unsafe { GetCursorPos(&mut p) } != 0;
+    ok.then_some((p.x, p.y))
+}
+
+fn drifted(home: (i32, i32), cursor: (i32, i32)) -> bool {
+    (i64::from(cursor.0) - i64::from(home.0))
+        .abs()
+        .max((i64::from(cursor.1) - i64::from(home.1)).abs())
+        > TAKEOVER_PX
+}
+
+/// Samples the cursor while a run is blocked (a model call, a click pause) and latches a stop
+/// once the pointer stays away from where this driver put it.
+fn cursor_watch(w: Arc<Watch>) {
+    let mut away = 0u8;
+    loop {
+        std::thread::sleep(Duration::from_millis(20));
+        if w.tripped.load(Ordering::SeqCst) {
+            away = 0;
+            continue;
+        }
+        let Some(cur) = cursor_pos() else {
+            continue;
+        };
+        let home = w.last.load(Ordering::SeqCst);
+        if home == NONE {
+            w.last.store(pack(cur.0, cur.1), Ordering::SeqCst);
+            away = 0;
+            continue;
+        }
+        let now = w.started.elapsed().as_millis() as u64;
+        if now < w.ignore_until.load(Ordering::SeqCst) {
+            away = 0;
+            continue;
+        }
+        if drifted(unpack(home), cur) {
+            away = away.saturating_add(1);
+            if away >= 2 {
+                w.tripped.store(true, Ordering::SeqCst);
+            }
+        } else {
+            away = 0;
+        }
+    }
 }
 
 const NONE: i64 = i64::MIN;
@@ -421,10 +479,36 @@ fn pause(ms: u64) {
 
 impl Win32Input {
     pub fn new() -> Self {
-        Self {
+        let watch = Arc::new(Watch {
             last: AtomicI64::new(NONE),
             tripped: AtomicBool::new(false),
+            ignore_until: AtomicU64::new(0),
+            started: Instant::now(),
+            abort: Mutex::new(None),
+        });
+        let watcher = Arc::clone(&watch);
+        std::thread::spawn(move || cursor_watch(watcher));
+        Self { watch }
+    }
+
+    fn abort_flag(&self) -> bool {
+        self.watch
+            .abort
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|f| f.load(Ordering::SeqCst))
+    }
+
+    fn pause_check(&self, ms: u64) -> TutorResult<()> {
+        let mut left = ms;
+        while left > 0 {
+            self.stop_check()?;
+            let slice = left.min(20);
+            pause(slice);
+            left -= slice;
         }
+        self.stop_check()
     }
 
     fn put_cursor(&self, x: i32, y: i32) -> TutorResult<()> {
@@ -439,7 +523,11 @@ impl Win32Input {
         };
         let nx = ((i64::from(x) - i64::from(vx)) * 65535 / i64::from(vw - 1)).clamp(0, 65535);
         let ny = ((i64::from(y) - i64::from(vy)) * 65535 / i64::from(vh - 1)).clamp(0, 65535);
-        self.last.store(pack(x, y), Ordering::SeqCst);
+        let now = self.watch.started.elapsed().as_millis() as u64;
+        self.watch
+            .ignore_until
+            .store(now.saturating_add(60), Ordering::SeqCst);
+        self.watch.last.store(pack(x, y), Ordering::SeqCst);
         send(&[mouse(
             MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
             nx as i32,
@@ -461,9 +549,9 @@ impl Win32Input {
     }
 
     fn stop_check(&self) -> TutorResult<()> {
-        if self.interrupted() {
+        if self.abort_flag() || self.interrupted() {
             Err(TutorError::Aborted(
-                "the user took over the mouse or keyboard".into(),
+                "the user took over the mouse or pressed Stop".into(),
             ))
         } else {
             Ok(())
@@ -520,12 +608,12 @@ impl InputDriver for Win32Input {
     fn click(&self, x: i32, y: i32, button: MouseButton, count: u8) -> TutorResult<()> {
         self.stop_check()?;
         self.put_cursor(x, y)?;
-        pause(40);
+        self.pause_check(40)?;
         for _ in 0..count.clamp(1, 3) {
             self.press(button, true)?;
-            pause(35);
+            self.pause_check(35)?;
             self.press(button, false)?;
-            pause(60);
+            self.pause_check(60)?;
         }
         Ok(())
     }
@@ -533,7 +621,7 @@ impl InputDriver for Win32Input {
     fn drag(&self, from: (i32, i32), to: (i32, i32)) -> TutorResult<()> {
         self.stop_check()?;
         self.put_cursor(from.0, from.1)?;
-        pause(80);
+        self.pause_check(80)?;
         self.press(MouseButton::Left, true)?;
         let steps = 24;
         for i in 1..=steps {
@@ -543,9 +631,9 @@ impl InputDriver for Win32Input {
                 let _ = self.press(MouseButton::Left, false);
                 return Err(e);
             }
-            pause(14);
+            self.pause_check(14)?;
         }
-        pause(60);
+        self.pause_check(60)?;
         self.press(MouseButton::Left, false)
     }
 
@@ -567,7 +655,7 @@ impl InputDriver for Win32Input {
             }
             if delay_ms > 0 {
                 let jitter = u64::from(ch as u32 % 7) * u64::from(delay_ms) / 14;
-                pause(u64::from(delay_ms.min(500)) + jitter);
+                self.pause_check(u64::from(delay_ms.min(500)) + jitter)?;
             }
         }
         Ok(())
@@ -594,48 +682,59 @@ impl InputDriver for Win32Input {
         seq.push(kbd(vk, 0, KEYEVENTF_KEYUP));
         seq.extend(down.iter().rev().map(|&m| kbd(m, 0, KEYEVENTF_KEYUP)));
         send(&seq)?;
-        pause(60);
+        self.pause_check(60)?;
         Ok(())
     }
 
     fn scroll(&self, x: i32, y: i32, dy: i32) -> TutorResult<()> {
         self.stop_check()?;
         self.put_cursor(x, y)?;
-        pause(30);
+        self.pause_check(30)?;
         // Positive `dy` scrolls the content down, which is a negative wheel delta.
         for _ in 0..dy.unsigned_abs().min(100) {
             let d = if dy > 0 { -120 } else { 120 };
             send(&[mouse(MOUSEEVENTF_WHEEL, 0, 0, d)])?;
-            pause(40);
+            self.pause_check(40)?;
         }
         Ok(())
     }
 
     fn interrupted(&self) -> bool {
-        if self.tripped.load(Ordering::SeqCst) {
+        if self.watch.tripped.load(Ordering::SeqCst) {
             return true;
         }
         let hotkey = key_down(VK_PAUSE) && key_down(VK_CONTROL) && key_down(VK_SHIFT);
-        let last = self.last.load(Ordering::SeqCst);
-        let moved = last != NONE && {
-            let mut p = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
-            // SAFETY: valid out pointer.
-            let ok = unsafe { GetCursorPos(&mut p) } != 0;
-            let (lx, ly) = unpack(last);
-            ok && (i64::from(p.x) - i64::from(lx))
-                .abs()
-                .max((i64::from(p.y) - i64::from(ly)).abs())
-                > TAKEOVER_PX
-        };
+        let last = self.watch.last.load(Ordering::SeqCst);
+        let now = self.watch.started.elapsed().as_millis() as u64;
+        let settling = now < self.watch.ignore_until.load(Ordering::SeqCst);
+        let moved =
+            !settling && last != NONE && cursor_pos().is_some_and(|p| drifted(unpack(last), p));
         if hotkey || moved {
-            self.tripped.store(true, Ordering::SeqCst);
+            self.watch.tripped.store(true, Ordering::SeqCst);
         }
-        hotkey || moved
+        self.watch.tripped.load(Ordering::SeqCst)
     }
 
     fn begin(&self) {
-        self.last.store(NONE, Ordering::SeqCst);
-        self.tripped.store(false, Ordering::SeqCst);
+        self.watch.tripped.store(false, Ordering::SeqCst);
+        self.watch.ignore_until.store(0, Ordering::SeqCst);
+        if let Some((x, y)) = cursor_pos() {
+            self.watch.last.store(pack(x, y), Ordering::SeqCst);
+        } else {
+            self.watch.last.store(NONE, Ordering::SeqCst);
+        }
+    }
+
+    fn bind_abort(&self, flag: &Arc<AtomicBool>) {
+        *self
+            .watch
+            .abort
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(flag));
+    }
+
+    fn user_stop(&self) {
+        self.watch.tripped.store(true, Ordering::SeqCst);
     }
 }
 
@@ -748,6 +847,13 @@ impl AppLauncher for Win32Launcher {
 #[cfg(test)]
 mod tests {
     use super::open_with_shell;
+
+    #[test]
+    fn cursor_drift_over_14px_is_a_takeover() {
+        assert!(!super::drifted((10, 10), (20, 18)));
+        assert!(super::drifted((10, 10), (25, 10)));
+        assert!(super::drifted((10, 10), (10, -5)));
+    }
 
     #[test]
     fn a_program_name_is_not_opened_with_explorer() {

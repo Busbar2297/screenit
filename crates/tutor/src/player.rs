@@ -50,6 +50,7 @@ const POLL_MS: u32 = 150;
 
 impl<'a> Player<'a> {
     pub fn new(rig: &'a Rig, guard: Guard, window: WindowInfo, mode: Mode) -> Self {
+        rig.input.bind_abort(&guard.abort);
         rig.input.begin();
         let last_pos = center(window.rect);
         Self {
@@ -96,6 +97,18 @@ impl<'a> Player<'a> {
         }
     }
 
+    /// Sleep in short slices so Stop and a mouse takeover land within a fraction of a second.
+    fn pause(&self, ms: u32) -> TutorResult<()> {
+        let mut left = ms;
+        while left > 0 {
+            self.check_alive()?;
+            let slice = left.min(40);
+            self.rig.pace.sleep_ms(slice);
+            left -= slice;
+        }
+        self.check_alive()
+    }
+
     fn check_alive(&self) -> TutorResult<()> {
         if self.rig.input.interrupted() {
             self.guard
@@ -117,7 +130,7 @@ impl<'a> Player<'a> {
                     self.rig.pace.sleep_ms(p.dt_ms);
                     self.rig.input.move_to(p.x, p.y)?;
                 }
-                self.rig.pace.sleep_ms(280);
+                self.pause(280)?;
             }
         }
         self.last_pos = to;
@@ -130,15 +143,13 @@ impl<'a> Player<'a> {
         let start = self.rel();
         self.guard.check(step, &*self.rig.ui, &*self.rig.input)?;
         let (rect, act_ms, text) = self.act(step)?;
-        self.rig
-            .pace
-            .sleep_ms(if self.mode == Mode::Perform { 600 } else { 120 });
+        self.pause(if self.mode == Mode::Perform { 600 } else { 120 })?;
         self.verify(step)?;
         if self.mode == Mode::Perform {
             let want = narration_ms(&step.narration);
             let spent = self.rel().saturating_sub(start);
             if want > spent {
-                self.rig.pace.sleep_ms((want - spent).min(15_000) as u32);
+                self.pause((want - spent).min(15_000) as u32)?;
             }
         }
         Ok(Marker {
@@ -224,7 +235,7 @@ impl<'a> Player<'a> {
                 Ok((Some(a.rect.union(&b.rect)), at, String::new()))
             }
             Action::Wait { ms } => {
-                self.rig.pace.sleep_ms(*ms);
+                self.pause(*ms)?;
                 Ok((None, self.rel(), String::new()))
             }
             Action::Focus => {

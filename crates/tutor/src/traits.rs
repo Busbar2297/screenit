@@ -5,6 +5,8 @@
 use crate::error::{TutorError, TutorResult};
 use screenit_geom::Rect;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// A top-level window.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +148,10 @@ pub trait InputDriver: Send + Sync {
     fn interrupted(&self) -> bool;
     /// A run starts: forget the previous cursor position and clear any stop latch.
     fn begin(&self) {}
+    /// Remember the run's abort flag so input calls stop as soon as Stop is pressed.
+    fn bind_abort(&self, _flag: &Arc<AtomicBool>) {}
+    /// The Stop button. Later `interrupted` checks stay true until `begin`.
+    fn user_stop(&self) {}
 }
 
 pub trait AppLauncher: Send + Sync {

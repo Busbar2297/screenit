@@ -183,6 +183,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Stop a rehearsal immediately
+- Moving the mouse latches a stop within about a tenth of a second, including while a model call or a click is in progress. Stop sets the same latch, and model calls are abandoned instead of running to the timeout.
+
 ## 2026-11-05 - Plan an app that is already open
 - Plan is enabled from the goal alone. With App to launch and Window title both empty, it uses the frontmost other window. Rehearse, Record and Produce stay off until a script exists, and say so on hover.
 

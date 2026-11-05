@@ -72,11 +72,11 @@ fn win(rig: &Rig) -> crate::WindowInfo {
     rig.window(&script().app).unwrap()
 }
 
-fn opts(chat: Option<&dyn LlmChat>) -> RehearseOpts<'_> {
+fn opts(chat: Option<Arc<FakeLlm>>) -> RehearseOpts {
     RehearseOpts {
         from_chapter: 0,
         max_repairs: 2,
-        chat: chat.map(|c| (c, ChatOptions::default())),
+        chat: chat.map(|c| (c as Arc<dyn LlmChat>, ChatOptions::default())),
     }
 }
 
@@ -135,7 +135,7 @@ fn the_model_repairs_a_failed_step_and_gets_a_small_prompt() {
         &rig,
         guard(),
         win(&rig),
-        &opts(Some(&*llm)),
+        &opts(Some(llm.clone())),
         &mut |_| {},
     )
     .unwrap();
@@ -163,7 +163,7 @@ fn repairs_are_bounded() {
         &rig,
         guard(),
         win(&rig),
-        &opts(Some(&*llm)),
+        &opts(Some(llm.clone())),
         &mut |_| {},
     )
     .unwrap_err();
@@ -175,7 +175,7 @@ fn repairs_are_bounded() {
         &rig,
         guard(),
         win(&rig),
-        &opts(Some(&*silent)),
+        &opts(Some(silent)),
         &mut |_| {},
     )
     .unwrap_err();
@@ -206,6 +206,24 @@ fn input_only_reaches_the_target_app() {
         ),
         Err(TutorError::Safety(_))
     ));
+}
+
+#[test]
+fn wait_for_returns_as_soon_as_the_run_is_stopped() {
+    let (w, rig, _) = app();
+    let abort = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let started = std::time::Instant::now();
+    let err = crate::wait_for(&*rig.input, &abort, || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        1
+    })
+    .unwrap_err();
+    assert!(matches!(err, TutorError::Aborted(_)), "{err:?}");
+    assert!(started.elapsed().as_millis() < 500);
+    w.set_interrupted(true);
+    let abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let err = crate::wait_for(&*rig.input, &abort, || 1).unwrap_err();
+    assert!(matches!(err, TutorError::Aborted(_)), "{err:?}");
 }
 
 #[test]

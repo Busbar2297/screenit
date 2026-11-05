@@ -6,14 +6,42 @@ use crate::plan::{parse_step, repair_messages};
 use crate::player::{Mode, Player};
 use crate::safety::Guard;
 use crate::script::{Action, Selector, Step, TutorialScript};
-use crate::traits::{ChatOptions, LlmChat, Rig, WindowInfo};
+use crate::traits::{ChatOptions, InputDriver, LlmChat, Rig, WindowInfo};
 use screenit_geom::Rect;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-pub struct RehearseOpts<'a> {
+pub struct RehearseOpts {
     pub from_chapter: usize,
     pub max_repairs: u32,
-    pub chat: Option<(&'a dyn LlmChat, ChatOptions)>,
+    pub chat: Option<(Arc<dyn LlmChat>, ChatOptions)>,
+}
+
+/// Run `work` on another thread and return as soon as it finishes, the user hits Stop, or the
+/// mouse watcher trips. The worker is left to finish on its own after a stop.
+pub fn wait_for<T: Send + 'static>(
+    input: &dyn InputDriver,
+    abort: &AtomicBool,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> TutorResult<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(work());
+    });
+    loop {
+        if abort.load(Ordering::SeqCst) || input.interrupted() {
+            return Err(TutorError::Aborted("stopped by the user".into()));
+        }
+        match rx.recv_timeout(Duration::from_millis(40)) {
+            Ok(v) => return Ok(v),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(TutorError::Llm("the model call ended".into()));
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,7 +103,7 @@ pub fn rehearse(
     rig: &Rig,
     guard: Guard,
     window: WindowInfo,
-    opts: &RehearseOpts<'_>,
+    opts: &RehearseOpts,
     on_event: &mut dyn FnMut(Event),
 ) -> TutorResult<Report> {
     script.validate()?;
@@ -85,6 +113,7 @@ pub fn rehearse(
         ));
     }
     let mut report = Report::default();
+    let abort = Arc::clone(&guard.abort);
     let mut player = Player::new(rig, guard, window, Mode::Rehearse);
     let goal = script.goal.clone();
     for ci in opts.from_chapter..script.chapters.len() {
@@ -136,7 +165,12 @@ pub fn rehearse(
                             &msg,
                             &snap,
                         );
-                        let reply = chat.chat(&msgs, copts)?;
+                        let reply = wait_for(&*rig.input, &abort, {
+                            let chat = Arc::clone(chat);
+                            let msgs = msgs.clone();
+                            let copts = copts.clone();
+                            move || chat.chat(&msgs, &copts)
+                        })??;
                         script.chapters[ci].steps[si] = parse_step(&reply, &step.id)?;
                     }
                     Err(e) => return Err(e),
