@@ -46,5 +46,6 @@ and the production plan behind traits (`UiTree`, `InputDriver`, `AppLauncher`, `
 `platform::automation` implements them with UI Automation and SendInput; `llm` implements
 `LlmChat` for LM Studio. Engine commands `ui.*`, `input.*`, `app.launch` and `tutor.*` run
 long steps as background jobs (`tutor.status`, `tutor.wait`, `tutor.abort`). Flow: plan, rehearse
-(the model repairs failed steps), perform (one recording per chapter), produce (chapter cards,
+(a failed step is repaired from a screenshot of the window in front, and the corrected step is
+written back into the script), perform (one recording per chapter), produce (chapter cards,
 idle trim, zoom, click rings, captions, SRT).

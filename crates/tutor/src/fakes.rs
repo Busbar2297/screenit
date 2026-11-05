@@ -4,13 +4,13 @@
 use crate::error::{TutorError, TutorResult};
 use crate::perform::{ChapterRecorder, Segment};
 use crate::traits::{
-    AppLauncher, ChatMessage, ChatOptions, InputDriver, LlmChat, MouseButton, Pace, UiElement,
-    UiSnapshot, UiTree, WindowInfo,
+    AppLauncher, ChatMessage, ChatOptions, InputDriver, LlmChat, MouseButton, Pace, Shot,
+    UiElement, UiSnapshot, UiTree, WindowInfo,
 };
 use screenit_geom::Rect;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -46,6 +46,9 @@ struct World {
     alive: bool,
     interrupted: bool,
     launched: Vec<String>,
+    shot: Option<Shot>,
+    front: Option<WindowInfo>,
+    front_elements: Vec<UiElement>,
 }
 
 pub struct FakeWorld {
@@ -87,6 +90,9 @@ impl FakeWorld {
                 alive: true,
                 interrupted: false,
                 launched: Vec::new(),
+                shot: None,
+                front: None,
+                front_elements: Vec::new(),
             }),
         })
     }
@@ -131,6 +137,23 @@ impl FakeWorld {
         lock(&self.w).launched.clone()
     }
 
+    /// Screenshot returned for the main window and for a window set with `set_front`.
+    pub fn set_shot(&self, shot: Shot) {
+        lock(&self.w).shot = Some(shot);
+    }
+
+    /// A dialog of the same app, now in front. Snapshots of its handle see `elements`.
+    pub fn set_front(&self, title: &str, elements: Vec<UiElement>) {
+        let mut w = lock(&self.w);
+        w.front = Some(WindowInfo {
+            hwnd: 99,
+            pid: Self::PID,
+            title: title.into(),
+            rect: Rect::new(200, 200, 400, 300),
+        });
+        w.front_elements = elements;
+    }
+
     fn apply(w: &mut World, trig: &Trigger) {
         let effects: Vec<Effect> = w
             .rules
@@ -160,7 +183,17 @@ impl FakeWorld {
 impl UiTree for FakeWorld {
     fn snapshot(&self, window: u64) -> TutorResult<UiSnapshot> {
         let w = lock(&self.w);
-        if !w.alive || window != w.window.hwnd {
+        if !w.alive {
+            return Err(TutorError::Ui("no such window".into()));
+        }
+        if let Some(front) = w.front.clone().filter(|f| f.hwnd == window) {
+            return Ok(UiSnapshot {
+                window: front,
+                elements: w.front_elements.clone(),
+            }
+            .finish());
+        }
+        if window != w.window.hwnd {
             return Err(TutorError::Ui("no such window".into()));
         }
         Ok(UiSnapshot {
@@ -171,14 +204,20 @@ impl UiTree for FakeWorld {
     }
     fn other_windows(&self) -> Vec<WindowInfo> {
         let w = lock(&self.w);
-        if w.alive {
-            vec![w.window.clone()]
-        } else {
-            Vec::new()
+        let mut out = Vec::new();
+        if let Some(front) = &w.front {
+            out.push(front.clone());
         }
+        if w.alive {
+            out.push(w.window.clone());
+        }
+        out
     }
     fn foreground(&self) -> Option<WindowInfo> {
         let w = lock(&self.w);
+        if let Some(front) = &w.front {
+            return Some(front.clone());
+        }
         Some(WindowInfo {
             pid: w.foreground_pid,
             ..w.window.clone()
@@ -186,7 +225,12 @@ impl UiTree for FakeWorld {
     }
     fn is_alive(&self, window: u64) -> bool {
         let w = lock(&self.w);
-        w.alive && window == w.window.hwnd
+        w.alive && (window == w.window.hwnd || w.front.as_ref().is_some_and(|f| f.hwnd == window))
+    }
+    fn capture(&self, window: u64) -> Option<Shot> {
+        let w = lock(&self.w);
+        let known = window == w.window.hwnd || w.front.as_ref().is_some_and(|f| f.hwnd == window);
+        if known { w.shot.clone() } else { None }
     }
 }
 
@@ -285,6 +329,7 @@ impl Pace for FakePace {
 pub struct FakeLlm {
     replies: Mutex<VecDeque<TutorResult<String>>>,
     calls: Mutex<Vec<Vec<ChatMessage>>>,
+    images: AtomicU32,
 }
 
 impl FakeLlm {
@@ -292,10 +337,14 @@ impl FakeLlm {
         Arc::new(Self {
             replies: Mutex::new(replies.into()),
             calls: Mutex::new(Vec::new()),
+            images: AtomicU32::new(0),
         })
     }
     pub fn calls(&self) -> Vec<Vec<ChatMessage>> {
         lock(&self.calls).clone()
+    }
+    pub fn image_calls(&self) -> u32 {
+        self.images.load(Ordering::SeqCst)
     }
 }
 
@@ -305,6 +354,15 @@ impl LlmChat for FakeLlm {
         lock(&self.replies)
             .pop_front()
             .unwrap_or_else(|| Err(TutorError::Llm("no more canned replies".into())))
+    }
+    fn chat_image(
+        &self,
+        messages: &[ChatMessage],
+        _image: &Shot,
+        opts: &ChatOptions,
+    ) -> TutorResult<String> {
+        self.images.fetch_add(1, Ordering::SeqCst);
+        self.chat(messages, opts)
     }
 }
 

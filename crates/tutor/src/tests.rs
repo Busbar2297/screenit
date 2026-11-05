@@ -145,7 +145,59 @@ fn the_model_repairs_a_failed_step_and_gets_a_small_prompt() {
     assert_eq!(calls.len(), 1);
     let prompt = &calls[0][1].content;
     assert!(prompt.contains("Store") && prompt.contains("#"), "{prompt}");
+    assert!(
+        prompt.contains("at ") && prompt.contains("Never invent a position"),
+        "{prompt}"
+    );
     assert!(prompt.len() < 6000);
+    assert_eq!(llm.image_calls(), 0);
+}
+
+#[test]
+fn a_stuck_step_is_repaired_from_the_window_in_front() {
+    let (w, rig, _) = app();
+    w.set_front(
+        "Open",
+        vec![element("Button", "Open", Rect::new(220, 240, 80, 24))],
+    );
+    w.set_shot(crate::Shot {
+        width: 1,
+        height: 1,
+        rgba: vec![1, 2, 3, 255],
+    });
+    let mut s = script();
+    s.chapters[1].steps[0].timeout_ms = 300;
+    s.chapters[1].steps[0].action =
+        serde_json::from_str(r#"{"type":"click","target":{"role":"ListItem","name":"Open"}}"#)
+            .unwrap();
+    s.chapters[1].steps[0].expect.clear();
+    let fix = r#"{"narration":"Click Open.","action":{"type":"click","target":{"role":"Button","name":"Open","rect":{"x":220,"y":240,"w":80,"h":24}}}}"#;
+    let llm = FakeLlm::new(vec![Ok(fix.into())]);
+    let mut seen = String::new();
+    let r = rehearse(
+        &mut s,
+        &rig,
+        guard(),
+        win(&rig),
+        &opts(Some(llm.clone())),
+        &mut |e| {
+            if let crate::rehearse::Event::Repair { window, .. } = e {
+                seen = window;
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(r.repairs, 1);
+    assert_eq!(seen, "Open");
+    assert_eq!(llm.image_calls(), 1);
+    let prompt = &llm.calls()[0][1].content;
+    assert!(prompt.contains("changed to \"Open\""), "{prompt}");
+    assert!(prompt.contains("screenshot"), "{prompt}");
+    assert!(prompt.contains("at 220,240 80x24"), "{prompt}");
+    assert_eq!(
+        s.chapters[1].steps[0].verified_rect,
+        Some(Rect::new(220, 240, 80, 24))
+    );
 }
 
 #[test]

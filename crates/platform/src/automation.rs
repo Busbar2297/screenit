@@ -9,8 +9,8 @@ use crate::util::{from_wide, id_from_hwnd};
 use screenit_geom::Rect;
 use screenit_tutor::keys::{Key, parse_chord};
 use screenit_tutor::{
-    AppLauncher, InputDriver, MouseButton, TutorError, TutorResult, UiElement, UiSnapshot, UiTree,
-    WindowInfo,
+    AppLauncher, InputDriver, MouseButton, Shot, TutorError, TutorResult, UiElement, UiSnapshot,
+    UiTree, WindowInfo,
 };
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
@@ -329,6 +329,25 @@ impl UiTree for Win32Ui {
     fn is_alive(&self, window: u64) -> bool {
         // SAFETY: handle validity query only.
         unsafe { IsWindow(raw(window)) != 0 }
+    }
+
+    fn capture(&self, window: u64) -> Option<Shot> {
+        use screenit_capture::ScreenSource;
+        let img = crate::screen::Win32Screen::new().grab_window(window).ok()?;
+        if img.is_empty() {
+            return None;
+        }
+        let width = img.width();
+        let height = img.height();
+        let rgba = img.into_data();
+        let bytes = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))?;
+        (rgba.len() == bytes).then_some(Shot {
+            width,
+            height,
+            rgba,
+        })
     }
 }
 

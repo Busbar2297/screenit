@@ -108,6 +108,10 @@ impl UiSnapshot {
                     e.value.chars().take(40).collect::<String>()
                 ));
             }
+            out.push_str(&format!(
+                " at {},{} {}x{}",
+                e.rect.x, e.rect.y, e.rect.w, e.rect.h
+            ));
             out.push('\n');
         }
         out
@@ -125,6 +129,18 @@ pub trait UiTree: Send + Sync {
     }
     /// Whether `window` still exists.
     fn is_alive(&self, window: u64) -> bool;
+    /// A screenshot of `window`, for a vision model. `None` when a picture is not available.
+    fn capture(&self, _window: u64) -> Option<Shot> {
+        None
+    }
+}
+
+/// One screenshot: straight RGBA8, row-major. Sent to the vision model when a step gets stuck.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shot {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +168,19 @@ pub trait InputDriver: Send + Sync {
     fn bind_abort(&self, _flag: &Arc<AtomicBool>) {}
     /// The Stop button. Later `interrupted` checks stay true until `begin`.
     fn user_stop(&self) {}
+}
+
+pub trait LlmChat: Send + Sync {
+    fn chat(&self, messages: &[ChatMessage], opts: &ChatOptions) -> TutorResult<String>;
+    /// Same as `chat`, with a screenshot attached to the last user message.
+    fn chat_image(
+        &self,
+        messages: &[ChatMessage],
+        _image: &Shot,
+        opts: &ChatOptions,
+    ) -> TutorResult<String> {
+        self.chat(messages, opts)
+    }
 }
 
 pub trait AppLauncher: Send + Sync {
@@ -193,10 +222,6 @@ pub struct ChatOptions {
     /// Ask the server for a JSON object reply.
     pub json: bool,
     pub max_tokens: u32,
-}
-
-pub trait LlmChat: Send + Sync {
-    fn chat(&self, messages: &[ChatMessage], opts: &ChatOptions) -> TutorResult<String>;
 }
 
 /// Time source and sleeper so scripts run in virtual time under test.

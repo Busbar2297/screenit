@@ -1,8 +1,9 @@
-//! Rehearsal: run every step against the live app without recording, ask the language model to
-//! repair steps that fail, and pin down where each target really was.
+//! Rehearsal: run every step against the live app without recording. A step that cannot find its
+//! control is repaired by the language model, which sees a screenshot of the window in front and
+//! the real rectangles of the controls there. The corrected step is written back into the script.
 
 use crate::error::{TutorError, TutorResult};
-use crate::plan::{parse_step, repair_messages};
+use crate::plan::{RepairLook, parse_step, repair_messages};
 use crate::player::{Mode, Player};
 use crate::safety::Guard;
 use crate::script::{Action, Selector, Step, TutorialScript};
@@ -59,6 +60,8 @@ pub enum Event {
         step_id: String,
         attempt: u32,
         error: String,
+        /// Title of the window the picture and the control list came from.
+        window: String,
     },
     ChapterChecked {
         index: usize,
@@ -95,6 +98,33 @@ fn pin(step: &mut Step, rect: Option<Rect>) {
         } => fix(target),
         _ => {}
     }
+}
+
+/// Point the player at a dialog, menu or other window that appeared in front of the target.
+/// screenIt's own window is never followed: it is a different process and is not listed.
+fn follow_front(player: &mut Player) -> Option<String> {
+    let front = player.rig.ui.foreground()?;
+    if front.hwnd == 0 || front.hwnd == player.window.hwnd {
+        return None;
+    }
+    let same_app = front.pid != 0 && front.pid == player.window.pid;
+    let listed = player
+        .rig
+        .ui
+        .other_windows()
+        .iter()
+        .any(|w| w.hwnd == front.hwnd);
+    if !same_app && !listed {
+        return None;
+    }
+    player.window = front.clone();
+    player.guard.target_window = front.hwnd;
+    player.guard.target_pid = front.pid;
+    Some(if front.title.is_empty() {
+        "untitled".into()
+    } else {
+        front.title
+    })
 }
 
 /// Run chapters `from_chapter..`. On failure the script keeps the progress made so far.
@@ -150,12 +180,15 @@ pub fn rehearse(
                         }
                         attempt += 1;
                         report.repairs += 1;
+                        let switched = follow_front(&mut player);
+                        let snap = rig.ui.snapshot(player.window.hwnd)?;
+                        let shot = rig.ui.capture(player.window.hwnd);
                         on_event(Event::Repair {
                             step_id: step.id.clone(),
                             attempt,
                             error: msg.clone(),
+                            window: player.window.title.clone(),
                         });
-                        let snap = rig.ui.snapshot(player.window.hwnd)?;
                         let done = &script.chapters[ci].steps[..si];
                         let msgs = repair_messages(
                             &goal,
@@ -164,12 +197,19 @@ pub fn rehearse(
                             &step,
                             &msg,
                             &snap,
+                            RepairLook {
+                                picture: shot.is_some(),
+                                switched_to: switched.as_deref(),
+                            },
                         );
                         let reply = wait_for(&*rig.input, &abort, {
                             let chat = Arc::clone(chat);
                             let msgs = msgs.clone();
                             let copts = copts.clone();
-                            move || chat.chat(&msgs, &copts)
+                            move || match &shot {
+                                Some(image) => chat.chat_image(&msgs, image, &copts),
+                                None => chat.chat(&msgs, &copts),
+                            }
                         })??;
                         script.chapters[ci].steps[si] = parse_step(&reply, &step.id)?;
                     }

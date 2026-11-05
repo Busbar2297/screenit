@@ -273,34 +273,80 @@ pub fn chat_body(
     body
 }
 
+/// Chat-completions body with a screenshot on the last user message.
+pub fn chat_image_body(
+    messages: &[screenit_tutor::ChatMessage],
+    shot: &screenit_tutor::Shot,
+    opts: &screenit_tutor::ChatOptions,
+) -> Result<Value, CaptureError> {
+    let raster = Raster::from_rgba(shot.width, shot.height, shot.rgba.clone())
+        .map_err(|e| err("image", e))?;
+    let png = encode(&fit(&raster)?, Format::Png, 100).map_err(|e| err("encode", e))?;
+    let data_url = format!("data:image/png;base64,{}", base64(&png));
+    let mut body = chat_body(messages, opts);
+    if let Some(msgs) = body.get_mut("messages").and_then(Value::as_array_mut)
+        && let Some(last) = msgs
+            .iter_mut()
+            .rev()
+            .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+    {
+        let text = last
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        last["content"] = json!([
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": data_url}}
+        ]);
+    }
+    Ok(body)
+}
+
+fn post_chat(
+    body: &Value,
+    opts: &screenit_tutor::ChatOptions,
+) -> Result<String, screenit_tutor::TutorError> {
+    let to = |e: CaptureError| screenit_tutor::TutorError::Llm(e.to_string());
+    let cfg = LlmConfig {
+        url: opts.url.clone(),
+        model: opts.model.clone(),
+        api_key: opts.api_key.clone(),
+        timeout_secs: opts.timeout_secs.max(1),
+    };
+    let url = format!("{}/chat/completions", base_url(&cfg).map_err(to)?);
+    let mut resp = agent(&cfg)
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", &auth(&cfg))
+        .send(&body.to_string())
+        .map_err(|e| to(err("request", e)))?;
+    let text = resp
+        .body_mut()
+        .with_config()
+        .limit(MAX_RESPONSE)
+        .read_to_string()
+        .map_err(|e| to(err("read", e)))?;
+    parse_chat_reply(&text).map_err(to)
+}
+
 impl screenit_tutor::LlmChat for LmStudio {
     fn chat(
         &self,
         messages: &[screenit_tutor::ChatMessage],
         opts: &screenit_tutor::ChatOptions,
     ) -> Result<String, screenit_tutor::TutorError> {
+        post_chat(&chat_body(messages, opts), opts)
+    }
+
+    fn chat_image(
+        &self,
+        messages: &[screenit_tutor::ChatMessage],
+        image: &screenit_tutor::Shot,
+        opts: &screenit_tutor::ChatOptions,
+    ) -> Result<String, screenit_tutor::TutorError> {
         let to = |e: CaptureError| screenit_tutor::TutorError::Llm(e.to_string());
-        let cfg = LlmConfig {
-            url: opts.url.clone(),
-            model: opts.model.clone(),
-            api_key: opts.api_key.clone(),
-            timeout_secs: opts.timeout_secs.max(1),
-        };
-        let url = format!("{}/chat/completions", base_url(&cfg).map_err(to)?);
-        let body = chat_body(messages, opts).to_string();
-        let mut resp = agent(&cfg)
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &auth(&cfg))
-            .send(&body)
-            .map_err(|e| to(err("request", e)))?;
-        let text = resp
-            .body_mut()
-            .with_config()
-            .limit(MAX_RESPONSE)
-            .read_to_string()
-            .map_err(|e| to(err("read", e)))?;
-        parse_chat_reply(&text).map_err(to)
+        post_chat(&chat_image_body(messages, image, opts).map_err(to)?, opts)
     }
 }
 #[cfg(test)]
@@ -449,6 +495,33 @@ mod tests {
             "{req}"
         );
         assert!(LmStudio.chat(&[], &ChatOptions::default()).is_err());
+    }
+
+    #[test]
+    fn image_chat_attaches_the_screenshot() {
+        use screenit_tutor::{ChatMessage, ChatOptions, LlmChat, Shot};
+        let reply = r#"{"choices":[{"message":{"content":"{\"action\":{\"type\":\"key\",\"keys\":\"enter\"}}"}}]}"#;
+        let (url, h) = serve(vec![(200, reply.into(), 0)]);
+        let opts = ChatOptions {
+            url,
+            model: "gemma".into(),
+            timeout_secs: 2,
+            max_tokens: 256,
+            ..ChatOptions::default()
+        };
+        let shot = Shot {
+            width: 1,
+            height: 1,
+            rgba: vec![255, 0, 0, 255],
+        };
+        let out = LmStudio
+            .chat_image(&[ChatMessage::user("look at this")], &shot, &opts)
+            .unwrap();
+        assert!(out.contains("action"), "{out}");
+        let req = h.join().unwrap().pop().unwrap_or_default();
+        assert!(req.contains("image_url"), "{req}");
+        assert!(req.contains("data:image/png;base64,"), "{req}");
+        assert!(req.contains("look at this"), "{req}");
     }
 
     #[test]

@@ -1,5 +1,6 @@
-//! Prompts for the language model and parsing of its replies. The model only ever sees a compact
-//! text list of UI elements and a small slice of the script, never the whole history.
+//! Prompts for the language model and parsing of its replies. The model sees a compact text list
+//! of UI elements (with their real screen rectangles) and a small slice of the script. A repair
+//! may also attach a screenshot of the window in front.
 
 use crate::error::{TutorError, TutorResult};
 use crate::script::{Step, TutorialScript};
@@ -12,7 +13,8 @@ ACTION is one of:
  {"type":"click","target":SEL} {"type":"double_click","target":SEL} {"type":"right_click","target":SEL}
  {"type":"hover","target":SEL} {"type":"type","target":SEL?,"text":str} {"type":"key","keys":"ctrl+s"}
  {"type":"scroll","target":SEL?,"dy":int} {"type":"drag","from":SEL,"to":SEL} {"type":"wait","ms":int}
-SEL = {"role":str,"name":str,"automation_id":str?,"within":str?,"nth":int?}  (use names and ids that appear in the UI list)
+SEL = {"role":str,"name":str,"automation_id":str?,"rect":{"x":int,"y":int,"w":int,"h":int}?,"within":str?,"nth":int?}
+Copy role, name and rect from the control list. The "at x,y wxh" numbers are that control's screen rectangle. Never invent a position.
 EXPECT is one of:
  {"type":"appears","target":SEL} {"type":"disappears","target":SEL} {"type":"focused","target":SEL}
  {"type":"value_is","target":SEL,"value":str} {"type":"value_contains","target":SEL,"value":str}
@@ -52,6 +54,12 @@ pub fn plan_messages(
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
 
+/// What the repair prompt should trust: a picture, and a window that was not the one we started on.
+pub struct RepairLook<'a> {
+    pub picture: bool,
+    pub switched_to: Option<&'a str>,
+}
+
 /// Messages asking for a fixed replacement of one failed step.
 pub fn repair_messages(
     goal: &str,
@@ -60,14 +68,26 @@ pub fn repair_messages(
     failed: &Step,
     error: &str,
     snap: &UiSnapshot,
+    look: RepairLook<'_>,
 ) -> Vec<ChatMessage> {
     let system = format!(
         "You repair one failed step of a UI tutorial script. Reply with ONE JSON STEP object only.\n{SCHEMA}"
     );
     let recent: Vec<&Step> = done.iter().rev().take(3).rev().collect();
+    let look_line = if look.picture {
+        "A screenshot of this window is attached. Trust the picture when a dialog, menu or other window appeared."
+    } else {
+        "No screenshot was available."
+    };
+    let switched = look
+        .switched_to
+        .map(|title| format!("The window in front changed to \"{title}\". Act on that window.\n"))
+        .unwrap_or_default();
     let user = format!(
         "Tutorial goal: {}\nChapter: {}\nPrevious steps: {}\nFailed step: {}\nError: {}\n\
-         Controls visible now:\n{}\nReturn a corrected STEP.",
+         {switched}{look_line}\nCopy role, name and the at x,y wxh rectangle from the list below. \
+         Never invent a position.\nControls visible now:\n{}\nReturn a corrected STEP. \
+         This step replaces the failed one in the script.",
         clip(goal, 300),
         clip(chapter, 100),
         serde_json::to_string(&recent).unwrap_or_default(),
@@ -245,5 +265,49 @@ mod tests {
         assert_eq!(m.len(), 2);
         assert!(m[1].content.contains("at most 200 steps"));
         assert!(m[1].content.len() < 2000);
+    }
+
+    #[test]
+    fn repair_prompt_names_real_rects_and_the_screenshot() {
+        use crate::traits::{UiElement, WindowInfo};
+        use screenit_geom::Rect;
+        let mut snap = UiSnapshot {
+            window: WindowInfo {
+                title: "Open".into(),
+                ..WindowInfo::default()
+            },
+            elements: vec![UiElement {
+                role: "Button".into(),
+                name: "Open".into(),
+                rect: Rect::new(10, 20, 30, 40),
+                enabled: true,
+                depth: 1,
+                ..UiElement::default()
+            }],
+        };
+        snap = snap.finish();
+        assert!(snap.compact(10).contains("at 10,20 30x40"));
+        let failed = parse_step(
+            r#"{"action":{"type":"click","target":{"role":"ListItem","name":"Open"}}}"#,
+            "c2s1",
+        )
+        .unwrap();
+        let msgs = repair_messages(
+            "open a file",
+            "Opening",
+            &[],
+            &failed,
+            "not found",
+            &snap,
+            RepairLook {
+                picture: true,
+                switched_to: Some("Open"),
+            },
+        );
+        let prompt = &msgs[1].content;
+        assert!(prompt.contains("screenshot"), "{prompt}");
+        assert!(prompt.contains("changed to \"Open\""), "{prompt}");
+        assert!(prompt.contains("at 10,20 30x40"), "{prompt}");
+        assert!(prompt.contains("Never invent a position"), "{prompt}");
     }
 }
