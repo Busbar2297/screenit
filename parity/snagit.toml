@@ -849,3 +849,49 @@ tier = 2
 status = "done"
 commands = ["app.update.check", "app.update.download", "app.update.install", "app.update.skip", "app.update.status"]
 tests = ["update_cmds::tests::check_downloads_and_install_hands_over", "tests::checksum_mismatch_deletes_the_file", "tests::offline_fails_quietly_and_can_be_retried"]
+
+# ---- Beyond parity: AI Tutorial Director ----
+[[row]]
+id = "ai.ui.primitives"
+group = "AI tutorials"
+title = "UI Automation snapshot, guarded mouse/keyboard input and app launch for agents (target lock, kill hotkey, no password typing)"
+tier = 3
+status = "done"
+commands = ["ui.snapshot", "input.move", "input.click", "input.type", "input.key", "input.scroll", "app.launch"]
+tests = ["tutor_cmds::tests::input_needs_a_named_focused_target", "tutor_cmds::tests::typing_into_a_password_field_is_refused", "tests::input_only_reaches_the_target_app", "e2e::form_tutorial_rehearse_perform_produce"]
+
+[[row]]
+id = "ai.tutor.plan"
+group = "AI tutorials"
+title = "Plan a tutorial script (chapters, steps, narration, expected results) from a goal with the local language model"
+tier = 3
+status = "done"
+commands = ["tutor.plan", "tutor.script.get", "tutor.script.set", "tutor.save", "tutor.load"]
+tests = ["tutor_cmds::tests::plan_asks_the_model_and_retries_once", "tutor_cmds::tests::script_get_set_save_load", "plan::tests::parses_a_script_and_a_step"]
+
+[[row]]
+id = "ai.tutor.rehearse"
+group = "AI tutorials"
+title = "Rehearse a script against the live app through UI Automation, repairing failed steps with the model, with per-chapter checkpoints"
+tier = 3
+status = "done"
+commands = ["tutor.rehearse", "tutor.status", "tutor.wait", "tutor.abort"]
+tests = ["tests::the_model_repairs_a_failed_step_and_gets_a_small_prompt", "tests::repairs_are_bounded", "tutor_cmds::tests::rehearse_failure_is_reported_and_progress_kept"]
+
+[[row]]
+id = "ai.tutor.perform"
+group = "AI tutorials"
+title = "Perform a rehearsed script at human pace (curved cursor paths, paced typing) while recording each chapter with step markers"
+tier = 3
+status = "done"
+commands = ["tutor.perform"]
+tests = ["tests::performance_records_each_chapter_with_markers", "tests::recorder_is_stopped_when_a_step_fails", "e2e::form_tutorial_rehearse_perform_produce"]
+
+[[row]]
+id = "ai.tutor.produce"
+group = "AI tutorials"
+title = "Produce the tutorial video: chapter cards, idle trim, smooth zoom, click rings, burned-in captions, SRT and chapter list"
+tier = 3
+status = "done"
+commands = ["tutor.produce"]
+tests = ["produce::tests::trims_idle_and_adds_cards", "produce::tests::captions_callouts_and_zoom_follow_the_marker", "tutor_cmds::tests::rehearse_perform_produce_end_to_end", "e2e::form_tutorial_rehearse_perform_produce"]

@@ -1,0 +1,367 @@
+//! AI tutorial panel: a goal box, the target app, the editable script (chapters and steps) and
+//! the Plan, Rehearse, Record and Produce buttons. All work is done by the `tutor.*` commands;
+//! this file only shows their state and sends the user's choices.
+
+use crate::UiApp;
+use crate::icons::Icon;
+use crate::theme::{self, ACCENT, MUTED, OK, TEXT};
+use eframe::egui;
+use screenit_i18n::{t, tf};
+use serde_json::{Value, json};
+use std::time::{Duration, Instant};
+
+const ERR: egui::Color32 = egui::Color32::from_rgb(244, 114, 114);
+
+pub(crate) struct TutorUi {
+    pub goal: String,
+    pub launch: String,
+    pub window: String,
+    pub out_dir: String,
+    pub script_path: String,
+    pub max_steps: u32,
+    script: Option<Value>,
+    status: Value,
+    polled: Option<Instant>,
+}
+
+impl Default for TutorUi {
+    fn default() -> Self {
+        let home = std::env::var("USERPROFILE").unwrap_or_default();
+        Self {
+            goal: String::new(),
+            launch: String::new(),
+            window: String::new(),
+            out_dir: if home.is_empty() {
+                String::new()
+            } else {
+                format!("{home}\\Videos\\screenIt tutorials")
+            },
+            script_path: String::new(),
+            max_steps: 20,
+            script: None,
+            status: json!({}),
+            polled: None,
+        }
+    }
+}
+
+enum Act {
+    Plan,
+    Rehearse,
+    Perform,
+    Produce,
+    Abort,
+    Save,
+    Load,
+    /// Push the edited script back, keeping the rehearsal marks.
+    Edit,
+}
+
+fn file_stem(title: &str) -> String {
+    let s: String = title
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(40)
+        .collect();
+    if s.is_empty() { "tutorial".into() } else { s }
+}
+
+/// One-line summary of a step's action for the script tree.
+fn describe(action: &Value) -> String {
+    let kind = action["type"].as_str().unwrap_or("?");
+    let sel = |v: &Value| {
+        let n = v["name"].as_str().unwrap_or("");
+        let id = v["automation_id"].as_str().unwrap_or("");
+        let r = v["role"].as_str().unwrap_or("");
+        let main = if !n.is_empty() { n } else { id };
+        format!("{r} {main}").trim().to_string()
+    };
+    match kind {
+        "type" => format!("type \"{}\"", action["text"].as_str().unwrap_or("")),
+        "key" => format!("key {}", action["keys"].as_str().unwrap_or("")),
+        "wait" => format!("wait {} ms", action["ms"]),
+        "scroll" => format!("scroll {}", action["dy"]),
+        "drag" => format!("drag {} -> {}", sel(&action["from"]), sel(&action["to"])),
+        "focus" => "focus the app".into(),
+        _ => format!("{kind} {}", sel(&action["target"])),
+    }
+}
+
+impl UiApp {
+    fn tutor_poll(&mut self, ctx: &egui::Context, force: bool) {
+        let due = force
+            || self
+                .tutor_ui
+                .polled
+                .is_none_or(|t| t.elapsed() > Duration::from_millis(400));
+        if !due {
+            return;
+        }
+        self.tutor_ui.polled = Some(Instant::now());
+        if let Ok(s) = self.session.dispatch("tutor.status", &json!({})) {
+            self.tutor_ui.status = s;
+        }
+        self.tutor_ui.script = if self.tutor_ui.status["title"].is_null() {
+            None
+        } else {
+            self.session.dispatch("tutor.script.get", &json!({})).ok()
+        };
+        if self.tutor_ui.status["running"] == true {
+            ctx.request_repaint_after(Duration::from_millis(400));
+        }
+    }
+
+    fn tutor_run(&mut self, act: Act, ctx: &egui::Context) {
+        let u = &self.tutor_ui;
+        let title = u
+            .script
+            .as_ref()
+            .and_then(|s| s["title"].as_str())
+            .unwrap_or("tutorial")
+            .to_string();
+        let (id, params) = match act {
+            Act::Plan => {
+                let mut p = json!({"goal": u.goal.trim(), "max_steps": u.max_steps});
+                if !u.launch.trim().is_empty() {
+                    p["launch"] = json!(u.launch.trim());
+                }
+                if !u.window.trim().is_empty() {
+                    p["window_title"] = json!(u.window.trim());
+                }
+                ("tutor.plan", p)
+            }
+            Act::Rehearse => ("tutor.rehearse", json!({})),
+            Act::Perform => (
+                "tutor.perform",
+                json!({"output_dir": u.out_dir.trim(), "name": file_stem(&title)}),
+            ),
+            Act::Produce => (
+                "tutor.produce",
+                json!({"output": format!("{}\\{}.mp4", u.out_dir.trim().trim_end_matches('\\'), file_stem(&title))}),
+            ),
+            Act::Abort => ("tutor.abort", json!({})),
+            Act::Save => ("tutor.save", json!({"path": u.script_path.trim()})),
+            Act::Load => ("tutor.load", json!({"path": u.script_path.trim()})),
+            Act::Edit => match u.script.clone() {
+                Some(script) => (
+                    "tutor.script.set",
+                    json!({"script": script, "keep_checked": true}),
+                ),
+                None => return,
+            },
+        };
+        if self.run(id, params).is_some() {
+            self.status = format!("{id}: ok");
+        }
+        self.tutor_poll(ctx, true);
+    }
+
+    pub(crate) fn tutor_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.tutor_poll(ctx, false);
+        let running = self.tutor_ui.status["running"] == true;
+        let has_script = self.tutor_ui.script.is_some();
+        let mut act: Option<Act> = None;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(t("tutor.title")).size(24.0).strong());
+                ui.label(egui::RichText::new(t("tutor.hint")).size(13.0).color(MUTED));
+                ui.add_space(10.0);
+                self.tutor_form(ui, running);
+                ui.add_space(8.0);
+                crate::h_row(ui, |ui| {
+                    let goal_ok = !self.tutor_ui.goal.trim().is_empty()
+                        && !(self.tutor_ui.launch.trim().is_empty()
+                            && self.tutor_ui.window.trim().is_empty());
+                    let btn = |ui: &mut egui::Ui, icon, key: &str, primary, on: bool| {
+                        theme::pill_enabled(ui, icon, &t(key), primary, on && !running).clicked()
+                    };
+                    if btn(ui, Icon::Step, "tutor.plan", true, goal_ok) {
+                        act = Some(Act::Plan);
+                    }
+                    if btn(ui, Icon::Play, "tutor.rehearse", false, has_script) {
+                        act = Some(Act::Rehearse);
+                    }
+                    if btn(ui, Icon::Record, "tutor.perform", false, has_script) {
+                        act = Some(Act::Perform);
+                    }
+                    if btn(ui, Icon::Video, "tutor.produce", false, has_script) {
+                        act = Some(Act::Produce);
+                    }
+                    if running && theme::pill(ui, Icon::Stop, &t("tutor.abort"), true).clicked() {
+                        act = Some(Act::Abort);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(t("tutor.stop_hint"))
+                        .size(11.5)
+                        .color(MUTED),
+                );
+                ui.add_space(6.0);
+                self.tutor_status_lines(ui);
+                ui.add_space(10.0);
+                ui.separator();
+                if let Some(a) = self.tutor_script_tree(ui, running) {
+                    act = Some(a);
+                }
+            });
+        if let Some(a) = act {
+            self.tutor_run(a, ctx);
+        }
+    }
+
+    fn tutor_form(&mut self, ui: &mut egui::Ui, running: bool) {
+        let u = &mut self.tutor_ui;
+        ui.add_enabled_ui(!running, |ui| {
+            ui.label(egui::RichText::new(t("tutor.goal")).color(MUTED));
+            ui.add(
+                egui::TextEdit::multiline(&mut u.goal)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("Show how to add a column in Excel"),
+            );
+            egui::Grid::new("tutor_form").num_columns(2).show(ui, |ui| {
+                ui.label(egui::RichText::new(t("tutor.app")).color(MUTED));
+                ui.add(egui::TextEdit::singleline(&mut u.launch).desired_width(420.0));
+                ui.end_row();
+                ui.label(egui::RichText::new(t("tutor.window")).color(MUTED));
+                ui.add(egui::TextEdit::singleline(&mut u.window).desired_width(420.0));
+                ui.end_row();
+                ui.label(egui::RichText::new(t("tutor.max_steps")).color(MUTED));
+                ui.add(egui::DragValue::new(&mut u.max_steps).range(1..=200));
+                ui.end_row();
+                ui.label(egui::RichText::new(t("tutor.out")).color(MUTED));
+                ui.add(egui::TextEdit::singleline(&mut u.out_dir).desired_width(420.0));
+                ui.end_row();
+            });
+        });
+    }
+
+    fn tutor_status_lines(&self, ui: &mut egui::Ui) {
+        let s = &self.tutor_ui.status;
+        if s["running"] == true {
+            let phase = s["phase"].as_str().unwrap_or("");
+            ui.label(
+                egui::RichText::new(tf("tutor.working", &[("phase", phase)]))
+                    .color(ACCENT)
+                    .strong(),
+            );
+        } else if let Some(e) = s["error"].as_str() {
+            ui.label(
+                egui::RichText::new(tf("tutor.failed", &[("e", e)]))
+                    .color(ERR)
+                    .size(13.0),
+            );
+        } else if !s["result"].is_null() {
+            ui.label(egui::RichText::new(t("tutor.done")).color(OK).strong());
+            if let Some(v) = s["result"]["video"].as_str() {
+                ui.label(egui::RichText::new(v).size(12.0).color(TEXT));
+            }
+        }
+        if let Some(ev) = s["events"].as_array() {
+            for e in ev.iter().rev().take(4).rev() {
+                ui.label(egui::RichText::new(e.to_string()).size(11.0).color(MUTED));
+            }
+        }
+    }
+
+    fn tutor_script_tree(&mut self, ui: &mut egui::Ui, running: bool) -> Option<Act> {
+        let mut act = None;
+        crate::h_row(ui, |ui| {
+            ui.label(egui::RichText::new(t("tutor.script")).size(16.0).strong());
+            ui.add(
+                egui::TextEdit::singleline(&mut self.tutor_ui.script_path)
+                    .hint_text(t("tutor.script_path"))
+                    .desired_width(300.0),
+            );
+            let has_path = !self.tutor_ui.script_path.trim().is_empty();
+            if theme::pill_enabled(
+                ui,
+                Icon::Save,
+                &t("tutor.save"),
+                false,
+                has_path && !running,
+            )
+            .clicked()
+            {
+                act = Some(Act::Save);
+            }
+            if theme::pill_enabled(
+                ui,
+                Icon::Folder,
+                &t("tutor.load"),
+                false,
+                has_path && !running,
+            )
+            .clicked()
+            {
+                act = Some(Act::Load);
+            }
+        });
+        let Some(script) = self.tutor_ui.script.as_mut() else {
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(t("tutor.no_script")).color(MUTED));
+            return act;
+        };
+        let mut edited = false;
+        if let Some(chapters) = script["chapters"].as_array_mut() {
+            for (ci, ch) in chapters.iter_mut().enumerate() {
+                let checked = ch["checked"] == true;
+                let title = ch["title"].as_str().unwrap_or("").to_string();
+                let head = format!(
+                    "{}. {}{}",
+                    ci + 1,
+                    title,
+                    if checked {
+                        format!("   ({})", t("tutor.chapter_checked"))
+                    } else {
+                        String::new()
+                    }
+                );
+                egui::CollapsingHeader::new(egui::RichText::new(head).strong().color(if checked {
+                    OK
+                } else {
+                    TEXT
+                }))
+                .id_salt(("tutor_ch", ci))
+                .default_open(true)
+                .show(ui, |ui| {
+                    let Some(steps) = ch["steps"].as_array_mut() else {
+                        return;
+                    };
+                    for (si, st) in steps.iter_mut().enumerate() {
+                        let line = describe(&st["action"]);
+                        ui.label(
+                            egui::RichText::new(format!("{}  {line}", si + 1))
+                                .size(12.5)
+                                .color(MUTED),
+                        );
+                        let mut text = st["narration"].as_str().unwrap_or("").to_string();
+                        let r = ui.add_enabled(
+                            !running,
+                            egui::TextEdit::singleline(&mut text)
+                                .id_salt(("tutor_nar", ci, si))
+                                .desired_width(f32::INFINITY),
+                        );
+                        if r.changed() {
+                            st["narration"] = json!(text);
+                        }
+                        if r.lost_focus() {
+                            edited = true;
+                        }
+                    }
+                });
+            }
+        }
+        if edited {
+            act = Some(Act::Edit);
+        }
+        act
+    }
+}

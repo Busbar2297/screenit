@@ -182,3 +182,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - UI: strip above the status bar, pill in the compact launcher, Settings > Updates, About > Check for updates. 17 new i18n keys (11 languages translated, the rest English).
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
+
+## 2026-11-05 - AI tutorial director
+- New crate screenit-tutor (L4, pure): script model + selectors, human cursor paths, safety guard, deterministic player, LLM planner/repair prompts, rehearse, perform (per-chapter recording), produce plan (chapter cards, idle trim, zoom, callouts, captions, SRT). Traits UiTree/InputDriver/AppLauncher/LlmChat/Pace with fakes.
+- platform::automation: UIA snapshot (CacheRequest, ~25 ms), SendInput driver (kill hotkey Ctrl+Shift+Pause, 14 px mouse deviation = takeover), launcher. llm: LlmChat for LM Studio.
+- Engine: ui.snapshot, input.*, app.launch, tutor.{plan,script.get/set,save,load,rehearse,perform,produce,status,wait,abort}; render in tutor_render.rs. UI: AI tutorial panel (View::Tutorial), compact bar widened for the extra tile.
+- Fixture: --form mode (real Win32 controls); e2e tutor_e2e plans-free rehearse/perform/produce passes on a real desktop.
+- Open: produce is slow (frame-by-frame decode); no TTS narration yet; only LM Studio as brain; moving the mouse during a run aborts it by design.

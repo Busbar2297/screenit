@@ -18,6 +18,7 @@ pub const LAYERS: &[(&str, u8)] = &[
     ("capture", 4),
     ("record", 4),
     ("library", 4),
+    ("tutor", 4),
     ("update", 4),
     ("llm", 5),
     ("platform", 5),

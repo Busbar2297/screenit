@@ -9,6 +9,7 @@ screenit-raster = { workspace = true }
 screenit-codecs = { workspace = true }
 screenit-algo = { workspace = true }
 screenit-capture = { workspace = true }
+screenit-tutor = { workspace = true }
 serde_json = { workspace = true }
 ureq = { workspace = true }
 

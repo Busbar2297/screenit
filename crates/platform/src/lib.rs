@@ -4,6 +4,7 @@
 #![cfg(windows)]
 
 pub mod audio;
+pub mod automation;
 pub mod autostart;
 pub mod camera;
 mod clipboard;
@@ -64,6 +65,10 @@ pub fn services() -> Services {
         clipboard: Some(Arc::new(Win32Clipboard)),
         ocr: Some(Arc::new(WinOcr)),
         llm: Some(Arc::new(screenit_llm::LmStudio)),
+        chat: Some(Arc::new(screenit_llm::LmStudio)),
+        ui: Some(Arc::new(automation::Win32Ui)),
+        input: Some(Arc::new(automation::Win32Input::new())),
+        launcher: Some(Arc::new(automation::Win32Launcher)),
         camera: Some(Arc::new(camera::MfCamera::new(None))),
         devices: Some(Arc::new(Devices)),
         updater: updater(),

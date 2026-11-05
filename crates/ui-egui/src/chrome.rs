@@ -275,6 +275,18 @@ impl UiApp {
             }
             if theme::tile(
                 ui,
+                Icon::Video,
+                &t("bar.tutor"),
+                &t("bar.tutor.sub"),
+                ts,
+                true,
+            )
+            .clicked()
+            {
+                self.enter_view(ctx, View::Tutorial);
+            }
+            if theme::tile(
+                ui,
                 Icon::Gear,
                 &t("bar.settings"),
                 &t("bar.settings.sub"),
@@ -371,6 +383,17 @@ impl UiApp {
             .clicked()
             {
                 self.view = View::Editor;
+            }
+            if theme::icon_button(
+                ui,
+                Icon::Video,
+                &t("top.tutor"),
+                self.view == View::Tutorial,
+                32.0,
+            )
+            .clicked()
+            {
+                self.view = View::Tutorial;
             }
             if theme::icon_button(
                 ui,

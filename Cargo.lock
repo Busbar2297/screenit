@@ -2209,6 +2209,7 @@ dependencies = [
  "screenit-raster",
  "screenit-record",
  "screenit-testkit",
+ "screenit-tutor",
  "screenit-update",
  "screenit-vector",
  "serde",
@@ -2281,6 +2282,7 @@ dependencies = [
  "screenit-capture",
  "screenit-codecs",
  "screenit-raster",
+ "screenit-tutor",
  "serde_json",
  "ureq",
 ]
@@ -2306,6 +2308,7 @@ dependencies = [
  "screenit-llm",
  "screenit-raster",
  "screenit-record",
+ "screenit-tutor",
  "screenit-update",
  "thiserror 2.0.21",
  "windows",
@@ -2343,6 +2346,16 @@ dependencies = [
  "screenit-raster",
  "screenit-record",
  "serde_json",
+]
+
+[[package]]
+name = "screenit-tutor"
+version = "0.2.12"
+dependencies = [
+ "screenit-geom",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

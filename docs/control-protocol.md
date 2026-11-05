@@ -31,6 +31,10 @@ Unknown fields are errors and nothing is applied when validation fails. Requests
 running app are executed on the UI thread, so the window reflects the result immediately; replies
 time out after 60 s.
 
+The AI tutorial commands are ordinary commands: 	utor.plan, 	utor.rehearse, 	utor.perform and
+	utor.produce start a background job; poll 	utor.status or block up to 55 s with 	utor.wait;
+	utor.abort stops. Input commands refuse to act unless the target window owns the foreground.
+
 ## Example (PowerShell)
 
 ```powershell

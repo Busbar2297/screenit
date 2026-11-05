@@ -196,6 +196,63 @@ impl LlmOcr for LmStudio {
     }
 }
 
+/// Chat-completions body for a multi-message conversation.
+pub fn chat_body(
+    messages: &[screenit_tutor::ChatMessage],
+    opts: &screenit_tutor::ChatOptions,
+) -> Value {
+    let msgs: Vec<Value> = messages
+        .iter()
+        .take(12)
+        .map(|m| {
+            let role = match m.role.as_str() {
+                "system" | "assistant" => m.role.as_str(),
+                _ => "user",
+            };
+            json!({"role": role, "content": m.content.chars().take(MAX_PROMPT).collect::<String>()})
+        })
+        .collect();
+    let mut body = json!({
+        "temperature": 0.2,
+        "max_tokens": opts.max_tokens.clamp(256, 8192),
+        "messages": msgs,
+    });
+    if !opts.model.trim().is_empty() {
+        body["model"] = json!(opts.model.trim());
+    }
+    body
+}
+
+impl screenit_tutor::LlmChat for LmStudio {
+    fn chat(
+        &self,
+        messages: &[screenit_tutor::ChatMessage],
+        opts: &screenit_tutor::ChatOptions,
+    ) -> Result<String, screenit_tutor::TutorError> {
+        let to = |e: CaptureError| screenit_tutor::TutorError::Llm(e.to_string());
+        let cfg = LlmConfig {
+            url: opts.url.clone(),
+            model: opts.model.clone(),
+            api_key: opts.api_key.clone(),
+            timeout_secs: opts.timeout_secs.max(1),
+        };
+        let url = format!("{}/chat/completions", base_url(&cfg).map_err(to)?);
+        let body = chat_body(messages, opts).to_string();
+        let mut resp = agent(&cfg)
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &auth(&cfg))
+            .send(&body)
+            .map_err(|e| to(err("request", e)))?;
+        let text = resp
+            .body_mut()
+            .with_config()
+            .limit(MAX_RESPONSE)
+            .read_to_string()
+            .map_err(|e| to(err("read", e)))?;
+        parse_reply(&text).map_err(to)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,6 +372,33 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("authorization: bearer lm-studio")
         );
+    }
+
+    #[test]
+    fn chats_with_many_messages() {
+        use screenit_tutor::{ChatMessage, ChatOptions, LlmChat};
+        let reply = json!({"choices":[{"message":{"content":" {\"ok\":1} "}}]}).to_string();
+        let (url, h) = serve(vec![(200, reply, 0)]);
+        let opts = ChatOptions {
+            url,
+            model: "m".into(),
+            timeout_secs: 2,
+            max_tokens: 1,
+            ..ChatOptions::default()
+        };
+        let out = LmStudio
+            .chat(
+                &[ChatMessage::system("be brief"), ChatMessage::user("hi")],
+                &opts,
+            )
+            .unwrap();
+        assert_eq!(out, "{\"ok\":1}");
+        let req = &h.join().unwrap()[0];
+        assert!(
+            req.contains("be brief") && req.contains("\"max_tokens\":256"),
+            "{req}"
+        );
+        assert!(LmStudio.chat(&[], &ChatOptions::default()).is_err());
     }
 
     #[test]

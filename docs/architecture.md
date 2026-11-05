@@ -38,3 +38,13 @@ IMFSinkWriter MP4, with WASAPI microphone / system-audio capture mixed into an A
 ## Unsafe isolation
 
 Only `screenit-platform` may use `unsafe`. Everything else is `forbid`.
+
+## AI tutorials
+
+`screenit-tutor` (L4) holds the tutorial script, selectors, safety guard, player, rehearse/perform
+and the production plan behind traits (`UiTree`, `InputDriver`, `AppLauncher`, `LlmChat`, `Pace`).
+`platform::automation` implements them with UI Automation and SendInput; `llm` implements
+`LlmChat` for LM Studio. Engine commands `ui.*`, `input.*`, `app.launch` and `tutor.*` run
+long steps as background jobs (`tutor.status`, `tutor.wait`, `tutor.abort`). Flow: plan, rehearse
+(the model repairs failed steps), perform (one recording per chapter), produce (chapter cards,
+idle trim, zoom, click rings, captions, SRT).

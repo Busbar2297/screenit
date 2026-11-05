@@ -13,6 +13,7 @@ mod selection;
 mod settings_panel;
 mod theme;
 mod toast;
+mod tutor_panel;
 mod update_ui;
 
 use icons::Icon;
@@ -111,11 +112,12 @@ pub(crate) enum View {
     Compact,
     Editor,
     Library,
+    Tutorial,
     Settings,
     About,
 }
 
-const COMPACT_SIZE: [f32; 2] = [1000.0, 252.0];
+const COMPACT_SIZE: [f32; 2] = [1090.0, 252.0];
 const EDITOR_SIZE: [f32; 2] = [1280.0, 820.0];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -207,6 +209,7 @@ pub struct UiApp {
     /// A Hide secrets scan running on a worker thread.
     pub(crate) secret_rx: Option<Receiver<Result<screenit_engine::ScanResult, String>>>,
     pub(crate) settings_tab: settings_panel::Tab,
+    pub(crate) tutor_ui: tutor_panel::TutorUi,
     /// Grabbed text opened from the library, shown instead of the canvas.
     pub(crate) reading: Option<String>,
     pub(crate) toast: Option<toast::Notice>,
@@ -270,6 +273,7 @@ impl UiApp {
             ocr_rx: None,
             secret_rx: None,
             settings_tab: settings_panel::Tab::General,
+            tutor_ui: tutor_panel::TutorUi::default(),
             reading: None,
             toast: None,
             applied_lang: String::new(),
@@ -320,6 +324,7 @@ impl UiApp {
             View::Compact => COMPACT_SIZE,
             View::Settings => [960.0, 660.0],
             View::About => [720.0, 560.0],
+            View::Tutorial => [960.0, 760.0],
             View::Editor | View::Library => EDITOR_SIZE,
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
@@ -804,6 +809,17 @@ impl eframe::App for UiApp {
                 egui::CentralPanel::default()
                     .frame(theme::panel_frame(theme::BG, 18))
                     .show(ui, |ui| self.library_view(ui));
+            }
+            View::Tutorial => {
+                egui::Panel::top("topbar")
+                    .frame(bar(theme::SURFACE))
+                    .show(ui, |ui| self.top_bar(ui, &ctx));
+                egui::Panel::bottom("status")
+                    .frame(theme::panel_frame(theme::SURFACE, 4))
+                    .show(ui, |ui| self.status_bar(ui));
+                egui::CentralPanel::default()
+                    .frame(theme::panel_frame(theme::BG, 18))
+                    .show(ui, |ui| self.tutor_view(ui, &ctx));
             }
             View::About => {
                 egui::CentralPanel::default()

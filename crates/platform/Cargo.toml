@@ -12,6 +12,7 @@ screenit-raster = { workspace = true }
 thiserror = { workspace = true }
 screenit-engine = { workspace = true }
 screenit-llm = { workspace = true }
+screenit-tutor = { workspace = true }
 screenit-update = { workspace = true }
 windows-sys = { workspace = true }
 windows = { workspace = true }

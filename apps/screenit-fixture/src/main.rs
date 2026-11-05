@@ -4,6 +4,8 @@
 #![allow(unsafe_code, clippy::chunks_exact_to_as_chunks)]
 
 #[cfg(windows)]
+mod form;
+#[cfg(windows)]
 mod win {
     use screenit_testkit::pattern;
     use std::ffi::c_void;
@@ -88,6 +90,14 @@ mod win {
 
     pub fn run() {
         let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.iter().any(|s| s == "--form") {
+            let a: Vec<i32> = args.iter().filter_map(|s| s.parse().ok()).collect();
+            match a[..] {
+                [x, y, w, h] if w > 0 && h > 0 => super::form::run(x, y, w, h),
+                _ => super::form::run(100, 100, 520, 380),
+            }
+            return;
+        }
         let pages: u32 = args
             .iter()
             .find_map(|s| s.strip_prefix("--scroll=")?.parse().ok())

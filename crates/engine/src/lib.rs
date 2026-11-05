@@ -27,6 +27,9 @@ mod secrets;
 pub use secrets::{Found, ScanResult, SecretScan};
 pub mod settings;
 mod system_cmds;
+mod tutor_cmds;
+mod tutor_render;
+pub use tutor_cmds::TutorShared;
 mod update_cmds;
 mod video_cmds;
 
@@ -116,6 +119,14 @@ pub struct Services {
     pub devices: Option<Arc<dyn screenit_record::AvDevices>>,
     /// Looks for, downloads and installs newer releases from GitHub.
     pub updater: Option<Arc<screenit_update::Updater>>,
+    /// UI Automation, synthetic input and app launching for AI tutorials.
+    pub ui: Option<Arc<dyn screenit_tutor::UiTree>>,
+    pub input: Option<Arc<dyn screenit_tutor::InputDriver>>,
+    pub launcher: Option<Arc<dyn screenit_tutor::AppLauncher>>,
+    /// Chat model that plans and repairs tutorial scripts.
+    pub chat: Option<Arc<dyn screenit_tutor::LlmChat>>,
+    /// Clock and sleeper for tutorial runs (virtual time in tests).
+    pub pace: Arc<dyn screenit_tutor::Pace>,
 }
 
 impl Default for Services {
@@ -133,6 +144,11 @@ impl Default for Services {
             camera: None,
             devices: None,
             updater: None,
+            ui: None,
+            input: None,
+            launcher: None,
+            chat: None,
+            pace: Arc::new(screenit_tutor::RealPace),
         }
     }
 }
@@ -181,6 +197,7 @@ pub struct Session {
     pub recording: Option<ActiveRecording>,
     pub last_recording: Option<RecordingResult>,
     pub capture_counter: u32,
+    pub tutor: Arc<TutorShared>,
     registry: Vec<CommandSpec>,
 }
 
@@ -236,6 +253,7 @@ impl Session {
             recording: None,
             last_recording: None,
             capture_counter: 0,
+            tutor: Arc::new(TutorShared::default()),
             registry: all_commands(),
         }
     }
