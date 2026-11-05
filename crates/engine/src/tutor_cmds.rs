@@ -391,7 +391,7 @@ fn plan(s: &mut Session, p: &Value) -> CmdResult {
         let mut last_reply = String::new();
         for attempt in 0..2 {
             sh.event(json!({"event": "asking_model", "model": model, "attempt": attempt + 1}));
-            let reply = screenit_tutor::wait_for(&*rig.input, &sh.abort, {
+            let reply = screenit_tutor::wait_for_stop(&sh.abort, {
                 let chat = Arc::clone(&chat);
                 let msgs = msgs.clone();
                 let copts = copts.clone();

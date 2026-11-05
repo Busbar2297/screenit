@@ -27,12 +27,29 @@ pub fn wait_for<T: Send + 'static>(
     abort: &AtomicBool,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> TutorResult<T> {
+    wait_inner(Some(input), abort, work)
+}
+
+/// Like `wait_for`, but only the Stop button ends the wait. Planning sends no input, so the
+/// mouse (and whatever position an earlier run left behind) must not cancel it.
+pub fn wait_for_stop<T: Send + 'static>(
+    abort: &AtomicBool,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> TutorResult<T> {
+    wait_inner(None, abort, work)
+}
+
+fn wait_inner<T: Send + 'static>(
+    input: Option<&dyn InputDriver>,
+    abort: &AtomicBool,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> TutorResult<T> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(work());
     });
     loop {
-        if abort.load(Ordering::SeqCst) || input.interrupted() {
+        if abort.load(Ordering::SeqCst) || input.is_some_and(|i| i.interrupted()) {
             return Err(TutorError::Aborted("stopped by the user".into()));
         }
         match rx.recv_timeout(Duration::from_millis(40)) {

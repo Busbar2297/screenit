@@ -183,6 +183,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Planning ignores the mouse latch
+- Planning waited on the mouse watcher, which still held the position of the previous run, so it ended with "stopped by the user" before the model answered. Planning now ends only on Stop.
+
 ## 2026-11-05 - Multi-monitor window, calmer stop latch, visible progress
 - Window: resizable/buttons commands were resent every frame (fought the drag); now sent on change only, and the fixed view size is re-applied when the monitor scale changes.
 - Stop latch: takeover distance is 60 px (was 14), and the cursor position is re-read while our own jump lands, so mixed-DPI rounding cannot read as "user moved the mouse".

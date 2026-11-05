@@ -276,6 +276,10 @@ fn wait_for_returns_as_soon_as_the_run_is_stopped() {
     let abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let err = crate::wait_for(&*rig.input, &abort, || 1).unwrap_err();
     assert!(matches!(err, TutorError::Aborted(_)), "{err:?}");
+    // Planning sends no input, so a stale mouse latch must not cancel it; Stop still does.
+    assert_eq!(crate::wait_for_stop(&abort, || 7).unwrap(), 7);
+    abort.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(crate::wait_for_stop(&abort, || 7).is_err());
 }
 
 #[test]
