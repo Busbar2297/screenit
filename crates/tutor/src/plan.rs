@@ -39,7 +39,8 @@ pub fn plan_messages(
     );
     let user = format!(
         "Goal: {}\nApp: {}\nAudience: {}\nUse at most {} steps, grouped into short chapters.\n\
-         Controls visible now:\n{}",
+         Controls visible now:\n{}\n\
+         Do not explain or plan aloud: your reply must be the JSON object itself, starting with {{.",
         clip(goal, 600),
         clip(app, 120),
         if audience.is_empty() {
@@ -87,7 +88,7 @@ pub fn repair_messages(
         "Tutorial goal: {}\nChapter: {}\nPrevious steps: {}\nFailed step: {}\nError: {}\n\
          {switched}{look_line}\nCopy role, name and the at x,y wxh rectangle from the list below. \
          Never invent a position.\nControls visible now:\n{}\nReturn a corrected STEP. \
-         This step replaces the failed one in the script.",
+         This step replaces the failed one in the script. Do not explain: reply with the JSON object only.",
         clip(goal, 300),
         clip(chapter, 100),
         serde_json::to_string(&recent).unwrap_or_default(),
@@ -103,6 +104,37 @@ pub fn repair_messages(
 pub fn extract_json(text: &str) -> Option<String> {
     let stripped = strip_think(text);
     pick(&stripped).or_else(|| if stripped == text { None } else { pick(text) })
+}
+
+/// The last JSON object in a reply that has a top-level `key` (`chapters` for a script, `action`
+/// for a step). A stray `{"type":...}` quoted while the model thinks aloud is never taken for it.
+fn extract_keyed(text: &str, key: &str) -> Option<String> {
+    let stripped = strip_think(text);
+    keyed(&stripped, key).or_else(|| {
+        if stripped == text {
+            None
+        } else {
+            keyed(text, key)
+        }
+    })
+}
+
+fn keyed(text: &str, key: &str) -> Option<String> {
+    let mut found = None;
+    let mut rest = text;
+    while let Some(i) = rest.find('{') {
+        let slice = &rest[i..];
+        let hit = balanced(slice).filter(|obj| {
+            serde_json::from_str::<serde_json::Value>(obj).is_ok_and(|v| v.get(key).is_some())
+        });
+        if let Some(obj) = hit {
+            found = Some(obj.to_string());
+            rest = &slice[obj.len()..];
+        } else {
+            rest = &slice[1..];
+        }
+    }
+    found
 }
 
 fn strip_think(text: &str) -> String {
@@ -193,8 +225,12 @@ pub fn parse_script(
     goal: &str,
     app: crate::script::AppTarget,
 ) -> TutorResult<TutorialScript> {
-    let json = extract_json(reply)
-        .ok_or_else(|| TutorError::Llm("the reply holds no JSON object".into()))?;
+    let json = extract_keyed(reply, "chapters").ok_or_else(|| {
+        TutorError::Llm(
+            "the reply holds no script (no object with `chapters`). The model probably ran out of room while thinking: raise its context length in LM Studio"
+                .into(),
+        )
+    })?;
     let mut s: TutorialScript = serde_json::from_str(&json)
         .map_err(|e| TutorError::Llm(format!("the script does not parse: {e}")))?;
     s.goal = clip(goal, 2000);
@@ -204,8 +240,9 @@ pub fn parse_script(
 }
 
 pub fn parse_step(reply: &str, keep_id: &str) -> TutorResult<Step> {
-    let json = extract_json(reply)
-        .ok_or_else(|| TutorError::Llm("the reply holds no JSON object".into()))?;
+    let json = extract_keyed(reply, "action").ok_or_else(|| {
+        TutorError::Llm("the reply holds no step (no object with `action`)".into())
+    })?;
     let mut s: Step = serde_json::from_str(&json)
         .map_err(|e| TutorError::Llm(format!("the step does not parse: {e}")))?;
     s.id = keep_id.to_string();
@@ -249,6 +286,18 @@ mod tests {
         .unwrap();
         assert_eq!(step.id, "c1s1");
         assert_eq!(step.timeout_ms, 200);
+    }
+
+    #[test]
+    fn a_stray_object_in_thinking_is_not_the_script() {
+        let thinking = r#"*   Goal: open a file. I could use {"type":"click","target":{"role":"Button","name":"Open"}} here."#;
+        let e = parse_script(thinking, "g", AppTarget::default()).unwrap_err();
+        assert!(e.to_string().contains("no script"), "{e}");
+        assert!(parse_step(thinking, "x").is_err());
+        let both = format!(
+            "{thinking}\n{{\"title\":\"T\",\"chapters\":[{{\"title\":\"C\",\"steps\":[{{\"action\":{{\"type\":\"key\",\"keys\":\"enter\"}}}}]}}]}}"
+        );
+        assert!(parse_script(&both, "g", AppTarget::default()).is_ok());
     }
 
     #[test]
