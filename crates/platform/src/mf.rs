@@ -707,7 +707,13 @@ impl Recorder for MfRecorder {
 
 // ------------------------------------------------------------------ reader
 
-struct Cached(std::path::PathBuf, IMFSourceReader);
+struct Cached {
+    path: std::path::PathBuf,
+    reader: IMFSourceReader,
+    /// Timestamp (100 ns) of `frame`. The reader sits just after that sample.
+    at: Option<i64>,
+    frame: Option<Raster>,
+}
 // SAFETY: the wrapped COM object is only touched while holding the reader's mutexes.
 unsafe impl Send for Cached {}
 
@@ -791,24 +797,39 @@ impl VideoReader for MfVideoReader {
         use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
         let _g = self.lock.lock().map_err(|_| err("reader lock poisoned"))?;
         let mut cache = self.cache.lock().map_err(|_| err("cache lock poisoned"))?;
-        if cache.as_ref().is_none_or(|c| c.0 != path) {
-            *cache = Some(Cached(path.to_path_buf(), open(path)?));
+        if cache.as_ref().is_none_or(|c| c.path != path) {
+            *cache = Some(Cached {
+                path: path.to_path_buf(),
+                reader: open(path)?,
+                at: None,
+                frame: None,
+            });
         }
-        let reader = cache
-            .as_ref()
-            .map(|c| c.1.clone())
-            .ok_or_else(|| err("no reader"))?;
+        let target = (ms as i64).saturating_mul(10_000);
+        // A time we already passed: hand back the frame we decoded, do not seek to the start.
+        if let Some(c) = cache.as_ref()
+            && c.at.is_some_and(|at| target <= at)
+            && let Some(frame) = c.frame.clone()
+        {
+            return Ok(frame);
+        }
+        let (reader, forward) = {
+            let c = cache.as_ref().ok_or_else(|| err("no reader"))?;
+            (c.reader.clone(), c.at.is_some_and(|at| target > at))
+        };
         drop(cache);
-        let (w, h, _) = frame_size(&reader)?;
-        let target = (ms as i64) * 10_000;
+        let (nw, nh, _) = frame_size(&reader)?;
         // SAFETY: seek + read loop; buffers are locked only while copying.
-        unsafe {
-            let pos = PROPVARIANT::from(target);
-            reader
-                .SetCurrentPosition(&GUID::zeroed(), &pos)
-                .map_err(err)?;
+        let (raster, delivered) = unsafe {
+            if !forward {
+                let pos = PROPVARIANT::from(target);
+                reader
+                    .SetCurrentPosition(&GUID::zeroed(), &pos)
+                    .map_err(err)?;
+            }
             let mut last: Option<IMFSample> = None;
-            for _ in 0..600 {
+            let mut last_ts = target;
+            for _ in 0..8_000 {
                 let (mut flags, mut ts) = (0u32, 0i64);
                 let mut sample: Option<IMFSample> = None;
                 reader
@@ -825,19 +846,22 @@ impl VideoReader for MfVideoReader {
                     break; // end of stream
                 }
                 if let Some(s) = sample {
+                    last_ts = ts;
                     last = Some(s);
                     if ts >= target {
                         break;
                     }
                 }
             }
-            let sample = last.ok_or_else(|| err("no frame at that position"))?;
+            let Some(sample) = last else {
+                return self.held_frame(path);
+            };
             // The decoder renegotiates its output type (padded size, stride) once it sees the
             // stream, so the format is read again after decoding.
             let (cw, ch, stride) = frame_size(&reader)?;
-            let (ox, oy, w, h) = display_area(&reader).unwrap_or((0, 0, cw.min(w), ch.min(h)));
+            let (ox, oy, w, h) = display_area(&reader).unwrap_or((0, 0, cw.min(nw), ch.min(nh)));
             let buf = sample.GetBufferByIndex(0).map_err(err)?;
-            if let Ok(b2) = buf.cast::<IMF2DBuffer2>() {
+            let raster = if let Ok(b2) = buf.cast::<IMF2DBuffer2>() {
                 let (mut scan0, mut pitch) = (std::ptr::null_mut::<u8>(), 0i32);
                 let (mut start, mut len) = (std::ptr::null_mut::<u8>(), 0u32);
                 b2.Lock2DSize(
@@ -852,23 +876,45 @@ impl VideoReader for MfVideoReader {
                 let top = scan0.offset_from(start);
                 let r = copy_bgra(data, top, pitch as isize, ox, oy, w, h);
                 b2.Unlock2D().map_err(err)?;
-                return r;
-            }
-            let buf = sample.ConvertToContiguousBuffer().map_err(err)?;
-            let (mut ptr, mut len) = (std::ptr::null_mut::<u8>(), 0u32);
-            buf.Lock(&mut ptr, None, Some(&mut len)).map_err(err)?;
-            let data = std::slice::from_raw_parts(ptr, len as usize);
-            let row = (stride.unsigned_abs() as usize).max(cw as usize * 4) as isize;
-            // Positive stride = top-down rows; negative = the last row comes first in memory.
-            let (top, pitch) = if stride < 0 {
-                (row * (ch as isize - 1), -row)
+                r?
             } else {
-                (0, row)
+                let buf = sample.ConvertToContiguousBuffer().map_err(err)?;
+                let (mut ptr, mut len) = (std::ptr::null_mut::<u8>(), 0u32);
+                buf.Lock(&mut ptr, None, Some(&mut len)).map_err(err)?;
+                let data = std::slice::from_raw_parts(ptr, len as usize);
+                let row = (stride.unsigned_abs() as usize).max(cw as usize * 4) as isize;
+                // Positive stride = top-down rows; negative = the last row comes first in memory.
+                let (top, pitch) = if stride < 0 {
+                    (row * (ch as isize - 1), -row)
+                } else {
+                    (0, row)
+                };
+                let r = copy_bgra(data, top, pitch, ox, oy, w, h);
+                buf.Unlock().map_err(err)?;
+                r?
             };
-            let r = copy_bgra(data, top, pitch, ox, oy, w, h);
-            buf.Unlock().map_err(err)?;
-            r
+            (raster, last_ts)
+        };
+        if let Ok(mut cache) = self.cache.lock()
+            && let Some(c) = cache.as_mut()
+            && c.path == path
+        {
+            c.at = Some(delivered);
+            c.frame = Some(raster.clone());
         }
+        Ok(raster)
+    }
+}
+
+impl MfVideoReader {
+    fn held_frame(&self, path: &Path) -> Result<Raster, RecordError> {
+        self.cache
+            .lock()
+            .map_err(|_| err("cache lock poisoned"))?
+            .as_ref()
+            .filter(|c| c.path == path)
+            .and_then(|c| c.frame.clone())
+            .ok_or_else(|| err("no frame at that position"))
     }
 }
 

@@ -203,6 +203,8 @@
 "tutor.finish" = "Finish here"
 "tutor.ev.ask" = "Asked you: {q}"
 "tutor.elapsed" = "{s}s elapsed"
+"tutor.live" = "Planning"
+"tutor.progress" = "{done} / {total}"
 "tutor.plan_ready" = "Plan ready: {chapters} chapters, {steps} steps ({s}s). Review the script below, then press Rehearse."
 "tutor.ev.asking" = "Asking {model} to write the script (attempt {n})"
 "tutor.ev.chapter" = "Chapter {n}: {title}"

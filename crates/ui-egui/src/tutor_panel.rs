@@ -4,8 +4,9 @@
 
 use crate::UiApp;
 use crate::icons::Icon;
+use crate::recording::REC_RED;
 use crate::theme::{self, ACCENT, MUTED, OK, TEXT};
-use eframe::egui;
+use eframe::egui::{self, Pos2, Stroke, ViewportBuilder, ViewportId};
 use screenit_i18n::{t, tf};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -23,6 +24,10 @@ pub(crate) struct TutorUi {
     status: Value,
     polled: Option<Instant>,
     answer: String,
+    was_running: bool,
+    shown_question: String,
+    /// When the last job ended, so the bar can stay up long enough to be read.
+    finished_at: Option<Instant>,
 }
 
 impl Default for TutorUi {
@@ -43,6 +48,9 @@ impl Default for TutorUi {
             status: json!({}),
             polled: None,
             answer: String::new(),
+            was_running: false,
+            shown_question: String::new(),
+            finished_at: None,
         }
     }
 }
@@ -150,7 +158,71 @@ impl UiApp {
             self.session.dispatch("tutor.script.get", &json!({})).ok()
         };
         if self.tutor_ui.status["running"] == true {
-            ctx.request_repaint_after(Duration::from_millis(400));
+            ctx.request_repaint_after(Duration::from_millis(200));
+        }
+    }
+
+    /// Floating bar while a tutorial job runs, and the main window comes forward when it ends
+    /// or when the model asks a question.
+    pub(crate) fn drive_tutor_live(&mut self, ctx: &egui::Context) {
+        self.tutor_poll(ctx, false);
+        let running = self.tutor_ui.status["running"] == true;
+        let question = self.tutor_ui.status["question"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if self.tutor_ui.was_running && !running {
+            if let Some(p) = self.tutor_ui.status["result"]["script"].as_str() {
+                self.tutor_ui.script_path = p.to_string();
+            }
+            self.tutor_ui.finished_at = Some(Instant::now());
+            self.restore_window(ctx);
+        } else if running && !question.is_empty() && question != self.tutor_ui.shown_question {
+            self.restore_window(ctx);
+        }
+        if running {
+            self.tutor_ui.finished_at = None;
+        }
+        self.tutor_ui.was_running = running;
+        self.tutor_ui.shown_question = question;
+        let linger = self
+            .tutor_ui
+            .finished_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(8));
+        if running || linger {
+            self.tutor_float(ctx, running);
+            ctx.request_repaint_after(Duration::from_millis(200));
+        }
+    }
+
+    fn tutor_float(&mut self, ctx: &egui::Context, running: bool) {
+        let mon = ctx
+            .input(|i| i.viewport().monitor_size)
+            .unwrap_or(egui::vec2(1280.0, 800.0));
+        let (w, h) = (440.0, 64.0);
+        let builder = ViewportBuilder::default()
+            .with_title("screenIt tutorial")
+            .with_decorations(false)
+            .with_always_on_top()
+            .with_taskbar(false)
+            .with_resizable(false)
+            .with_position(Pos2::new(((mon.x - w) / 2.0).max(8.0), 28.0))
+            .with_inner_size([w, h]);
+        let mut stop = false;
+        ctx.show_viewport_immediate(
+            ViewportId::from_hash_of("scit-tutor-bar"),
+            builder,
+            |ui, _| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE.fill(theme::BG))
+                    .show(ui, |ui| {
+                        stop = tutor_bar(ui, &self.tutor_ui.status, running)
+                    });
+            },
+        );
+        let _ = screenit_platform::window::exclude_from_capture("screenIt tutorial");
+        if stop {
+            self.run("tutor.abort", json!({}));
         }
     }
 
@@ -164,7 +236,12 @@ impl UiApp {
             .to_string();
         let (id, params) = match act {
             Act::Plan => {
-                let mut p = json!({"goal": u.goal.trim(), "max_steps": u.max_steps});
+                let save = if u.script_path.trim().is_empty() {
+                    tutorial_plan_path(&u.out_dir)
+                } else {
+                    u.script_path.trim().to_string()
+                };
+                let mut p = json!({"goal": u.goal.trim(), "max_steps": u.max_steps, "save": save});
                 if !u.launch.trim().is_empty() {
                     p["launch"] = json!(u.launch.trim());
                 }
@@ -427,12 +504,16 @@ impl UiApp {
                                 .color(MUTED),
                         );
                     });
-                    // An indeterminate bar: the model call has no measurable progress.
-                    ui.add(
-                        egui::ProgressBar::new(0.0)
-                            .animate(true)
-                            .desired_height(6.0),
-                    );
+                    let (done, total) = progress_of(s);
+                    let bar = if total == 0 {
+                        egui::ProgressBar::new(0.0).animate(true)
+                    } else {
+                        egui::ProgressBar::new(done as f32 / total as f32).text(tf(
+                            "tutor.progress",
+                            &[("done", &done.to_string()), ("total", &total.to_string())],
+                        ))
+                    };
+                    ui.add(bar.desired_height(8.0));
                 } else if let Some(e) = failed {
                     ui.label(
                         egui::RichText::new(tf("tutor.failed", &[("e", e)]))
@@ -454,6 +535,9 @@ impl UiApp {
                         .color(OK)
                         .strong(),
                     );
+                    if let Some(path) = r["script"].as_str() {
+                        ui.label(egui::RichText::new(path).size(12.0).color(TEXT));
+                    }
                 } else {
                     ui.label(egui::RichText::new(t("tutor.done")).color(OK).strong());
                     if let Some(v) = s["result"]["video"].as_str() {
@@ -561,4 +645,86 @@ impl UiApp {
         }
         act
     }
+}
+
+fn progress_of(s: &Value) -> (u64, u64) {
+    (
+        s["progress_done"].as_u64().unwrap_or(0),
+        s["progress_total"].as_u64().unwrap_or(0),
+    )
+}
+
+fn clock(ms: u64) -> String {
+    let s = ms / 1000;
+    format!("{:02}:{:02}", s / 60, s % 60)
+}
+
+/// Where a new plan is written when the script box is empty.
+fn tutorial_plan_path(dir: &str) -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dir = dir.trim().trim_end_matches(['\\', '/']);
+    if dir.is_empty() {
+        format!("tutorial-{stamp}.json")
+    } else {
+        format!("{dir}\\tutorial-{stamp}.json")
+    }
+}
+
+/// The always-on-top bar: timer, how far the job has got, and Stop. Returns true when Stop is pressed.
+fn tutor_bar(ui: &mut egui::Ui, s: &Value, running: bool) -> bool {
+    let ms = s["elapsed_ms"].as_u64().unwrap_or(0);
+    let phase = s["phase"].as_str().unwrap_or("");
+    let label = if !running {
+        if let Some(e) = s["error"].as_str() {
+            tf("tutor.failed", &[("e", e)])
+        } else {
+            t("tutor.done")
+        }
+    } else if phase == "exploring" || phase == "planning" {
+        t("tutor.live")
+    } else {
+        tf("tutor.working", &[("phase", phase)])
+    };
+    let (done, total) = progress_of(s);
+    let mut stop = false;
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 40.0), egui::Sense::hover());
+        let p = ui.painter();
+        let c = Pos2::new(rect.center().x, rect.center().y);
+        if (ms / 600) % 2 == 0 {
+            p.circle_filled(c, 6.0, REC_RED);
+        } else {
+            p.circle_stroke(c, 6.0, Stroke::new(1.5, REC_RED));
+        }
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new(clock(ms))
+                    .monospace()
+                    .size(18.0)
+                    .color(TEXT),
+            );
+            ui.label(egui::RichText::new(label).size(11.0).color(MUTED));
+        });
+        let frac = if total == 0 {
+            0.0
+        } else {
+            done as f32 / total as f32
+        };
+        let bar = if total == 0 {
+            egui::ProgressBar::new(0.0).animate(true)
+        } else {
+            egui::ProgressBar::new(frac.clamp(0.0, 1.0)).text(tf(
+                "tutor.progress",
+                &[("done", &done.to_string()), ("total", &total.to_string())],
+            ))
+        };
+        ui.add(bar.desired_width(160.0).desired_height(10.0));
+        if running && ui.button(t("tutor.abort")).clicked() {
+            stop = true;
+        }
+    });
+    stop
 }

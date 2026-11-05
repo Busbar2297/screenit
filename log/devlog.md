@@ -235,3 +235,8 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## 2026-11-05 - Pointer follows the window it sees
 - Explore no longer aims by a control id that goes stale when a title changes. The model points inside the picture it was just shown (0 to 1000 across that window) and the pointer moves, clicks, types or presses the key. A point that lands on a control clicks that control.
 - A new title on the same window is kept and reported. A dialog is followed; when it closes, the pointer returns to the app the run started on instead of failing. A window that changes while the model is deciding is looked at again, not clicked with the old picture.
+
+## 2026-11-05 - Faster tutorial video, a live planning bar, plan saved as JSON
+- Produce reads each recording straight through and reuses a frame it already decoded. A 10 second clip no longer restarts the decoder a few hundred times.
+- While Plan (or Produce) runs, an always-on-top bar shows the timer, a progress count and Stop. screenIt comes to the front when the job finishes, or when the model asks a question.
+- Plan writes the script to a `.json` file (the script box, or `tutorial-<time>.json` in the output folder) and shows that path.

@@ -122,7 +122,8 @@ fn view_frame(
     }
 }
 
-/// Render `plan` over the takes of `perf` into `out`.
+/// Render `plan` over the takes of `perf` into `out`. `on_frame(done, total)` reports progress.
+#[allow(clippy::too_many_arguments)]
 pub fn render_video(
     reader: &dyn VideoReader,
     writer: &dyn VideoWriter,
@@ -131,6 +132,7 @@ pub fn render_video(
     fps: u32,
     out: &Path,
     abort: &AtomicBool,
+    on_frame: &dyn Fn(u32, u32),
 ) -> Result<RecordingResult, String> {
     let fps = fps.clamp(1, 60);
     let (w, h) = (even(perf.region.w), even(perf.region.h));
@@ -146,6 +148,9 @@ pub fn render_video(
             return Some(Err(plat("aborted")));
         }
         let t = (i * 1000 / u64::from(fps)).min(total - 1);
+        let done = u32::try_from(i).unwrap_or(u32::MAX);
+        let total_frames = u32::try_from(n).unwrap_or(u32::MAX);
+        on_frame(done, total_frames);
         i += 1;
         Some((|| -> Result<Raster, RecordError> {
             let mut img = match plan.locate(t) {

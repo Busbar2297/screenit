@@ -789,6 +789,7 @@ impl eframe::App for UiApp {
         overlay::drive(self, &ctx);
         toast::drive(self, &ctx);
         self.drive_recording(&ctx);
+        self.drive_tutor_live(&ctx);
         if self.view != View::Compact
             && ctx.input_mut(|i| {
                 i.consume_key(

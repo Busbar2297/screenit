@@ -38,6 +38,9 @@ struct Inner {
     answer: Option<Answer>,
     /// Phase of the job that ran last, so the panel can say what just finished.
     last_phase: String,
+    /// Steps or frames finished, and how many the job expects.
+    progress_done: u32,
+    progress_total: u32,
 }
 
 /// State shared between commands and the background job thread.
@@ -71,6 +74,12 @@ impl TutorShared {
             g.events.remove(0);
         }
         g.events.push(v);
+    }
+
+    fn set_progress(&self, done: u32, total: u32) {
+        let mut g = self.lock();
+        g.progress_done = done;
+        g.progress_total = total;
     }
 }
 
@@ -275,6 +284,8 @@ fn spawn_job(
         g.question = None;
         g.answer = None;
         g.last_phase = phase.into();
+        g.progress_done = 0;
+        g.progress_total = 0;
     }
     sh.abort.store(false, Ordering::SeqCst);
     let shared = sh.clone();
@@ -762,8 +773,17 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
     }
     spawn_job(s, "producing", move |sh| {
         let plan = Plan::build(&perf, &opts);
-        let res = render_video(&*reader, &*writer, &perf, &plan, fps, &out, &sh.abort)
-            .map_err(TutorError::Record)?;
+        let res = render_video(
+            &*reader,
+            &*writer,
+            &perf,
+            &plan,
+            fps,
+            &out,
+            &sh.abort,
+            &|done, total| sh.set_progress(done, total),
+        )
+        .map_err(TutorError::Record)?;
         let srt = out.with_extension("srt");
         if opts.captions {
             std::fs::write(&srt, plan.srt()).map_err(|e| TutorError::Record(e.to_string()))?;
@@ -802,6 +822,8 @@ fn status(s: &mut Session, p: &Value) -> CmdResult {
         "title": g.script.as_ref().map(|s| s.title.clone()),
         "chapters": chapters,
         "performed": g.performance.as_ref().map(|p| p.takes.len()),
+        "progress_done": g.progress_done,
+        "progress_total": g.progress_total,
         "events": &g.events[tail..],
     }))
 }
@@ -859,6 +881,7 @@ fn explore_cmd(s: &mut Session, p: &Value) -> CmdResult {
             "window_title",
             "max_steps",
             "allow_destructive",
+            "save",
         ],
     )?;
     let goal = a.str("goal")?.trim().to_string();
@@ -884,6 +907,11 @@ fn explore_cmd(s: &mut Session, p: &Value) -> CmdResult {
     }
     let max_steps = a.opt_u32("max_steps")?.unwrap_or(30).clamp(1, 200);
     let allow = a.bool("allow_destructive", false)?;
+    let save = a.opt_str("save")?.map(PathBuf::from).filter(|p| {
+        !p.as_os_str().is_empty()
+            && p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+    });
     let (chat, copts) = chat_setup(s)
         .ok_or_else(|| CommandError::Disabled("no language model available".into()))?;
     spawn_job(s, "exploring", move |sh| {
@@ -900,6 +928,7 @@ fn explore_cmd(s: &mut Session, p: &Value) -> CmdResult {
             chat,
             copts,
         };
+        sh.set_progress(0, max_steps);
         let mut script = empty_script(&goal, app);
         let r = explore(
             &mut script,
@@ -907,16 +936,42 @@ fn explore_cmd(s: &mut Session, p: &Value) -> CmdResult {
             guard,
             w,
             &opts,
-            &mut |e| sh.event(serde_json::to_value(&e).unwrap_or(Value::Null)),
+            &mut |e| {
+                let v = serde_json::to_value(&e).unwrap_or(Value::Null);
+                if v["event"] == "step" {
+                    let done = sh.lock().progress_done.saturating_add(1).min(max_steps);
+                    sh.set_progress(done, max_steps);
+                }
+                sh.event(v);
+            },
             &mut |q| wait_answer(sh, q),
         );
-        let out = json!({"title": script.title, "chapters": script.chapters.len(), "steps": script.step_count()});
-        if !script.chapters.is_empty() && (r.is_ok() || script.validate().is_ok()) {
+        let mut out = json!({"title": script.title, "chapters": script.chapters.len(), "steps": script.step_count()});
+        let keep = !script.chapters.is_empty() && (r.is_ok() || script.validate().is_ok());
+        if keep {
+            if let Some(path) = &save {
+                match write_script(path, &script) {
+                    Ok(()) => out["script"] = json!(path),
+                    Err(e) if r.is_ok() => return Err(e),
+                    Err(_) => {}
+                }
+            }
             sh.lock().script = Some(script);
         }
         r?;
         Ok(out)
     })
+}
+
+fn write_script(path: &std::path::Path, script: &TutorialScript) -> TutorResult<()> {
+    let text = serde_json::to_string_pretty(script)
+        .map_err(|e| TutorError::Script(format!("could not write the plan: {e}")))?;
+    if let Some(d) = path.parent()
+        && !d.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(d).map_err(|e| TutorError::Script(e.to_string()))?;
+    }
+    std::fs::write(path, text).map_err(|e| TutorError::Script(e.to_string()))
 }
 
 fn answer_cmd(s: &mut Session, p: &Value) -> CmdResult {
@@ -1024,7 +1079,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "tutor.explore",
             "Explore Tutorial",
             "Tutorial",
-            r#"{"goal":str,"launch"?:str,"args"?:str,"window_title"?:str,"max_steps"?:int,"allow_destructive"?:bool}"#,
+            r#"{"goal":str,"launch"?:str,"args"?:str,"window_title"?:str,"max_steps"?:int,"allow_destructive"?:bool,"save"?:str.json}"#,
             explore_cmd,
         ),
         c(
@@ -1384,9 +1439,10 @@ mod tests {
             s.dispatch("tutor.answer", &json!({"text": "x"})).is_err(),
             "nothing to answer yet"
         );
+        let path = std::env::temp_dir().join(format!("scit-plan-{}.json", std::process::id()));
         s.dispatch(
             "tutor.explore",
-            &json!({"goal": "write a note", "window_title": "notes"}),
+            &json!({"goal": "write a note", "window_title": "notes", "save": path}),
         )
         .unwrap();
         let mut asked = Value::Null;
@@ -1411,6 +1467,16 @@ mod tests {
         assert_eq!(st["last_phase"], "exploring");
         let sc = s.dispatch("tutor.script.get", &json!({})).unwrap();
         assert_eq!(sc["chapters"][0]["checked"], true);
+        assert!(
+            st["result"]["script"]
+                .as_str()
+                .is_some_and(|p| p.ends_with(".json")),
+            "{}",
+            st["result"]
+        );
+        let saved = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(saved.contains("Write"), "{saved}");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
