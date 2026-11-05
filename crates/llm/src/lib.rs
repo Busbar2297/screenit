@@ -66,16 +66,23 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// Longest side of the screenshot attached to a tutorial repair.
+const CHAT_IMAGE_SIDE: u32 = 896;
+
 fn fit(image: &Raster) -> Result<Raster, CaptureError> {
+    shrink(image, MAX_SIDE)
+}
+
+fn shrink(image: &Raster, max_side: u32) -> Result<Raster, CaptureError> {
     let (w, h) = (image.width(), image.height());
     if w == 0 || h == 0 {
         return Err(CaptureError::Empty);
     }
     let longest = w.max(h);
-    if longest <= MAX_SIDE {
+    if longest <= max_side {
         return Ok(image.clone());
     }
-    let scale = f64::from(MAX_SIDE) / f64::from(longest);
+    let scale = f64::from(max_side) / f64::from(longest);
     let nw = ((f64::from(w) * scale) as u32).max(1);
     let nh = ((f64::from(h) * scale) as u32).max(1);
     Ok(screenit_algo::resize(image, nw, nh)?)
@@ -281,7 +288,9 @@ pub fn chat_image_body(
 ) -> Result<Value, CaptureError> {
     let raster = Raster::from_rgba(shot.width, shot.height, shot.rgba.clone())
         .map_err(|e| err("image", e))?;
-    let png = encode(&fit(&raster)?, Format::Png, 100).map_err(|e| err("encode", e))?;
+    // Small on purpose: a picture costs tokens and the model's window may be only 4096.
+    let small = shrink(&raster, CHAT_IMAGE_SIDE)?;
+    let png = encode(&small, Format::Png, 100).map_err(|e| err("encode", e))?;
     let data_url = format!("data:image/png;base64,{}", base64(&png));
     let mut body = chat_body(messages, opts);
     if let Some(msgs) = body.get_mut("messages").and_then(Value::as_array_mut)
@@ -303,6 +312,17 @@ pub fn chat_image_body(
     Ok(body)
 }
 
+/// The human part of an OpenAI-style error body, never longer than a couple of lines.
+fn server_message(body: &str) -> String {
+    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let msg = v["error"]["message"]
+        .as_str()
+        .or_else(|| v["error"].as_str())
+        .or_else(|| v["message"].as_str())
+        .unwrap_or(body);
+    msg.chars().filter(|c| !c.is_control()).take(300).collect()
+}
+
 fn post_chat(
     body: &Value,
     opts: &screenit_tutor::ChatOptions,
@@ -315,12 +335,34 @@ fn post_chat(
         timeout_secs: opts.timeout_secs.max(1),
     };
     let url = format!("{}/chat/completions", base_url(&cfg).map_err(to)?);
-    let mut resp = agent(&cfg)
+    // Keep the body of an error status: LM Studio says why it refused (context too small, model
+    // not loaded, image not supported) and a bare "400" hides that.
+    let raw: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(u64::from(
+            cfg.timeout_secs.clamp(1, 600),
+        ))))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut resp = raw
         .post(&url)
         .header("Content-Type", "application/json")
         .header("Authorization", &auth(&cfg))
         .send(&body.to_string())
         .map_err(|e| to(err("request", e)))?;
+    if resp.status().as_u16() >= 400 {
+        let code = resp.status().as_u16();
+        let said = resp
+            .body_mut()
+            .with_config()
+            .limit(20_000)
+            .read_to_string()
+            .unwrap_or_default();
+        return Err(to(err(
+            "request",
+            format!("http status {code}: {}", server_message(&said)),
+        )));
+    }
     let text = resp
         .body_mut()
         .with_config()

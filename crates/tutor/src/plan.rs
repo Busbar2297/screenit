@@ -13,8 +13,7 @@ ACTION is one of:
  {"type":"click","target":SEL} {"type":"double_click","target":SEL} {"type":"right_click","target":SEL}
  {"type":"hover","target":SEL} {"type":"type","target":SEL?,"text":str} {"type":"key","keys":"ctrl+s"}
  {"type":"scroll","target":SEL?,"dy":int} {"type":"drag","from":SEL,"to":SEL} {"type":"wait","ms":int}
-SEL = {"role":str,"name":str,"automation_id":str?,"rect":{"x":int,"y":int,"w":int,"h":int}?,"within":str?,"nth":int?}
-Copy role, name and rect from the control list. The "at x,y wxh" numbers are that control's screen rectangle. Never invent a position.
+SEL = {"role":str,"name":str,"automation_id":str?,"within":str?,"nth":int?}  (use names and ids that appear in the UI list)
 EXPECT is one of:
  {"type":"appears","target":SEL} {"type":"disappears","target":SEL} {"type":"focused","target":SEL}
  {"type":"value_is","target":SEL,"value":str} {"type":"value_contains","target":SEL,"value":str}
@@ -49,7 +48,7 @@ pub fn plan_messages(
             audience
         },
         max_steps.clamp(1, 200),
-        snap.compact(150)
+        snap.compact_within(60, 3000, false)
     );
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
@@ -71,7 +70,8 @@ pub fn repair_messages(
     look: RepairLook<'_>,
 ) -> Vec<ChatMessage> {
     let system = format!(
-        "You repair one failed step of a UI tutorial script. Reply with ONE JSON STEP object only.\n{SCHEMA}"
+        "You repair one failed step of a UI tutorial script. Reply with ONE JSON STEP object only.\n{SCHEMA}\n\
+         A SEL may also carry \"rect\":{{\"x\":int,\"y\":int,\"w\":int,\"h\":int}}: copy it from the control list."
     );
     let recent: Vec<&Step> = done.iter().rev().take(3).rev().collect();
     let look_line = if look.picture {
@@ -92,8 +92,8 @@ pub fn repair_messages(
         clip(chapter, 100),
         serde_json::to_string(&recent).unwrap_or_default(),
         serde_json::to_string(failed).unwrap_or_default(),
-        clip(error, 400),
-        snap.compact(120)
+        clip(error, 300),
+        snap.compact_within(40, 2500, true)
     );
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
@@ -265,6 +265,46 @@ mod tests {
         assert_eq!(m.len(), 2);
         assert!(m[1].content.contains("at most 200 steps"));
         assert!(m[1].content.len() < 2000);
+    }
+
+    #[test]
+    fn prompts_fit_a_small_context_window() {
+        use crate::traits::UiElement;
+        use screenit_geom::Rect;
+        let elements: Vec<UiElement> = (0..400)
+            .map(|i| UiElement {
+                role: "Button".into(),
+                name: format!("Button number {i} with a rather long label"),
+                rect: Rect::new(i, i, 50, 20),
+                enabled: true,
+                depth: 1,
+                ..UiElement::default()
+            })
+            .collect();
+        let snap = UiSnapshot {
+            elements,
+            ..UiSnapshot::default()
+        }
+        .finish();
+        let plan = plan_messages("teach me", "App", "", 30, &snap);
+        let total: usize = plan.iter().map(|m| m.content.len()).sum();
+        assert!(total < 7000, "{total}");
+        assert!(!plan[1].content.contains("50x20"), "no rects when planning");
+        let failed = parse_step(r#"{"action":{"type":"key","keys":"enter"}}"#, "c1s1").unwrap();
+        let fix = repair_messages(
+            "g",
+            "c",
+            &[],
+            &failed,
+            "e",
+            &snap,
+            RepairLook {
+                picture: true,
+                switched_to: None,
+            },
+        );
+        let total: usize = fix.iter().map(|m| m.content.len()).sum();
+        assert!(total < 7000, "{total}");
     }
 
     #[test]

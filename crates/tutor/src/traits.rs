@@ -74,13 +74,19 @@ impl UiSnapshot {
 
     /// Compact text for a language model: one line per useful element, capped.
     pub fn compact(&self, max_lines: usize) -> String {
+        self.compact_within(max_lines, usize::MAX, true)
+    }
+
+    /// Like `compact`, stopping at `max_chars` and optionally leaving out screen rectangles.
+    /// A local model often has a 4096-token window, so the list must stay small.
+    pub fn compact_within(&self, max_lines: usize, max_chars: usize, rects: bool) -> String {
         let mut out = format!("window \"{}\"\n", self.window.title);
         let mut n = 0;
         for e in &self.elements {
             if e.rect.is_empty() || (e.name.is_empty() && e.automation_id.is_empty()) {
                 continue;
             }
-            if n >= max_lines {
+            if n >= max_lines || out.len() >= max_chars {
                 out.push_str("...\n");
                 break;
             }
@@ -108,10 +114,12 @@ impl UiSnapshot {
                     e.value.chars().take(40).collect::<String>()
                 ));
             }
-            out.push_str(&format!(
-                " at {},{} {}x{}",
-                e.rect.x, e.rect.y, e.rect.w, e.rect.h
-            ));
+            if rects {
+                out.push_str(&format!(
+                    " at {},{} {}x{}",
+                    e.rect.x, e.rect.y, e.rect.w, e.rect.h
+                ));
+            }
             out.push('\n');
         }
         out

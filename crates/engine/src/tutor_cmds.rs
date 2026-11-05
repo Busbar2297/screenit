@@ -407,7 +407,7 @@ fn plan(s: &mut Session, p: &Value) -> CmdResult {
                 Err(e) => {
                     msgs.push(ChatMessage {
                         role: "assistant".into(),
-                        content: reply.chars().take(4000).collect(),
+                        content: reply.chars().take(1200).collect(),
                     });
                     msgs.push(ChatMessage::user(format!(
                         "That reply was rejected: {e}. Reply again with only the JSON object. The first character must be {{."

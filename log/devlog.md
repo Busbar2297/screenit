@@ -183,6 +183,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Keep tutorial prompts inside a 4096-token model window
+- Plan failed with HTTP 400: the loaded model has a 4096-token context and the control list (now with rectangles) overflowed it. Planning lists at most 60 controls / 3000 chars without rectangles; repair lists 40 with rectangles and a screenshot capped at 896 px. Model error bodies (for example the context message) are now shown instead of a bare "400".
+
 ## 2026-11-05 - Planning ignores the mouse latch
 - Planning waited on the mouse watcher, which still held the position of the previous run, so it ended with "stopped by the user" before the model answered. Planning now ends only on Stop.
 
