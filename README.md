@@ -30,6 +30,7 @@ components already built into Windows.
 | **Grab text** | Pick an area or window on screen, or use **Grab text** on the image you have open. The text goes to the clipboard, is saved in the library as a text entry (searchable), and a notification confirms it. Offline Windows OCR in English and Arabic, or optionally a local vision model through LM Studio. |
 | **Smart tools** | Smart Redact (emails, phone numbers, card numbers, IPs, URLs, your own terms), background removal. |
 | **Record** | MP4 (H.264) of an area, a window or a whole monitor, up to 4K (native size or scaled to 1080p / 1440p / 2160p; GPU desktop duplication keeps it smooth), with microphone, system audio, webcam picture-in-picture and cursor effects. A floating pause/stop toolbar that never shows up in the video. |
+| **AI tutorial** (alpha) | Describe a task. A local language model watches the live app and takes one step at a time, asks you when it is stuck, then screenIt records the screen and puts the video in the library. Same LM Studio model as Grab text. Still being tested. |
 | **Edit video** | Trim, cut, combine, export to GIF, make a video from images, export MP4. |
 | **Organise** | Library grouped by day with thumbnails, tags and search across screenshots, videos and grabbed text. Saves go to `Pictures\screenIt` (OneDrive-aware). |
 | **Languages** | 28 interface languages, including full right-to-left Arabic, switchable in Settings. Translations are plain files you can edit. |
@@ -75,6 +76,22 @@ translations** applies your changes.
 <img src="docs/images/settings-ar.png" alt="screenIt settings in Arabic" width="640">
 </div>
 
+## AI tutorial (experimental)
+
+The **AI tutorial** tile on the capture bar is an alpha feature. Opening it shows an amber banner: "Alpha release. Still being tested."
+
+Write what the tutorial should teach. screenIt asks the same local model as **Grab text** (set the LM Studio URL, model and API key under **Settings → Text recognition**) to look at the live window and choose the next move. A step is kept only when the screen changes. If the model is stuck, it stops and asks: answer with a hint, say you did that part yourself, skip the chapter, or finish there.
+
+**Plan** writes the script as JSON (`tutorial-<time>.json` in the output folder, or the path in the script box) and shows a progress bar while it works. **Rehearse** checks the script on the real app. **Record** films each chapter from the screen. **Produce** builds the finished movie, with chapter cards and captions, and reads the recording straight through. Each chapter clip and the finished movie are added to the library as video, tagged `tutorial`.
+
+The output folder defaults to `Videos\screenIt tutorials` in your user profile. Leave **App to launch** empty when the app is already open. With no app path and no window title, Plan uses the frontmost window you left open.
+
+<div align="center">
+<img src="docs/images/ai-tutorial.png" alt="screenIt AI tutorial director" width="760">
+</div>
+
+A step-by-step guide is on the wiki: [AI tutorial](https://github.com/Busbar2297/screenit/wiki/AI-tutorial).
+
 ## Download
 
 Grab `screenit-v0.2.14-windows-x64.zip` from the [Releases](https://github.com/Busbar2297/screenit/releases)
@@ -90,6 +107,7 @@ Requirements: Windows 10 (1903 or later) or Windows 11, 64-bit.
 | Full screen | **Ctrl+Shift+F** |
 | Grab text | **Grab text** tile or top-bar button, then drag an area; or **Grab text** in the editor to read the open image. The text is copied and saved in the library. |
 | Record | **Record** tile. Toggle Microphone, System audio, Webcam and Cursor effects first, then drag an area, click a window, or press Enter for the whole monitor. |
+| AI tutorial | **AI tutorial** tile (marked Alpha). Write what to teach, then **Plan**, **Rehearse**, **Record**, and **Produce**. Stop with **Ctrl+Shift+Pause** or by moving the mouse. |
 | Editor tools | **V** select, **A** arrow, **L** line, **R** rectangle, **E** ellipse, **T** text, **S** step, **H** highlight, **B** blur, **P** pen, **C** crop |
 | Undo / redo | **Ctrl+Z** / **Ctrl+Y** |
 | Export PNG | **Ctrl+S**, or **Export PNG** in the top bar |

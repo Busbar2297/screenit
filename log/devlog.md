@@ -247,5 +247,8 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 ## 2026-11-05 - AI tutorial button fits the capture bar
 - The hint under AI tutorial was wider than the tile (`Teach a task`). The compact window is sized again on the first frame, so a 125% display no longer keeps the point size as pixels and clips the last buttons.
 
+## 2026-11-05 - AI tutorial documented
+- README features and the using table list the alpha AI tutorial, with a capture-bar shot and the tutorial screen. The wiki has an English and Arabic guide (Plan, Rehearse, Record, Produce, library).
+
 ## 2026-11-05 - Tutorial recordings join the library
 - Record files each chapter clip as a library video (tag `tutorial`, the app's window title). Produce files the finished movie the same way. Both show up on the next `tutor.status` or `tutor.wait`.
