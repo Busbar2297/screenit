@@ -13,7 +13,6 @@ pub const MAX_TEXT: usize = 2000;
 
 /// How to find an element again. `automation_id` wins; otherwise role+name (+ancestor hint).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Selector {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub role: String,
@@ -131,7 +130,7 @@ pub fn center(r: Rect) -> (i32, i32) {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
     Click {
         target: Selector,
@@ -188,7 +187,7 @@ impl Action {
 
 /// What must be true after a step.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Expect {
     Appears { target: Selector },
     Disappears { target: Selector },
@@ -245,7 +244,6 @@ fn default_timeout() -> u32 {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Step {
     #[serde(default)]
     pub id: String,
@@ -266,7 +264,6 @@ pub struct Step {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Chapter {
     pub title: String,
     #[serde(default)]
@@ -279,7 +276,6 @@ pub struct Chapter {
 
 /// The application the tutorial is about.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct AppTarget {
     /// Exe path, document or URL to launch when no window matches.
     #[serde(default)]
@@ -292,7 +288,6 @@ pub struct AppTarget {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TutorialScript {
     #[serde(default = "version")]
     pub version: u32,

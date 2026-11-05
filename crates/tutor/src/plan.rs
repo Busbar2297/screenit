@@ -305,6 +305,14 @@ mod tests {
     }
 
     #[test]
+    fn a_misspelled_field_from_the_model_is_ignored() {
+        let reply = r#"{"title":"T","chapters":[{"title":"C","steps":[
+          {"narration":"Open File","action":{"type":"click","target":{"role":"Button","name":"File","automation_s_id":"x"}},"extra":1}]}]}"#;
+        let s = parse_script(reply, "g", AppTarget::default()).unwrap();
+        assert_eq!(s.chapters[0].steps.len(), 1);
+    }
+
+    #[test]
     fn garbage_replies_are_errors() {
         assert!(parse_script("hello", "g", AppTarget::default()).is_err());
         assert!(parse_script("{\"title\":1}", "g", AppTarget::default()).is_err());

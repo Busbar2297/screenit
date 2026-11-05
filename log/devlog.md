@@ -183,6 +183,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Scripts ignore unknown fields
+- A model typo such as `automation_s_id` failed the whole plan. Script, step, selector and expectation parsing now ignore unknown fields.
+
 ## 2026-11-05 - Repair keeps trying and says what the model answered
 - A repair reply with no step is now one used-up attempt (it asks again) and the final error quotes the reply. A server that refuses the screenshot gets the text-only prompt. The repair prompt carries only the step part of the schema and 30 controls so it fits a 4096-token model.
 
