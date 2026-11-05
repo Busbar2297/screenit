@@ -354,7 +354,8 @@ impl UiTree for Win32Ui {
 // ------------------------------------------------------------------ input
 
 /// Cursor deviation (pixels) from where the driver put it that counts as the user taking over.
-const TAKEOVER_PX: i64 = 14;
+/// Generous on purpose: a resting hand, a bumped desk or a high-DPI rounding error must not end a run.
+const TAKEOVER_PX: i64 = 60;
 
 struct Watch {
     /// Packed cursor position this driver last claimed (`x << 32 | y`), or `NONE`.
@@ -405,6 +406,9 @@ fn cursor_watch(w: Arc<Watch>) {
         }
         let now = w.started.elapsed().as_millis() as u64;
         if now < w.ignore_until.load(Ordering::SeqCst) {
+            // Our own jump is landing. Trust where the cursor really ended up: with several
+            // monitors at different scales Windows can place it a few pixels off the request.
+            w.last.store(pack(cur.0, cur.1), Ordering::SeqCst);
             away = 0;
             continue;
         }
@@ -868,10 +872,10 @@ mod tests {
     use super::open_with_shell;
 
     #[test]
-    fn cursor_drift_over_14px_is_a_takeover() {
-        assert!(!super::drifted((10, 10), (20, 18)));
-        assert!(super::drifted((10, 10), (25, 10)));
-        assert!(super::drifted((10, 10), (10, -5)));
+    fn cursor_drift_over_60px_is_a_takeover() {
+        assert!(!super::drifted((10, 10), (40, 38)));
+        assert!(super::drifted((10, 10), (75, 10)));
+        assert!(super::drifted((10, 10), (10, -55)));
     }
 
     #[test]

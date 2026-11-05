@@ -30,6 +30,10 @@ struct Inner {
     events: Vec<Value>,
     error: Option<String>,
     result: Option<Value>,
+    started: Option<std::time::Instant>,
+    took_ms: u64,
+    /// Phase of the job that ran last, so the panel can say what just finished.
+    last_phase: String,
 }
 
 /// State shared between commands and the background job thread.
@@ -263,6 +267,8 @@ fn spawn_job(
         g.error = None;
         g.result = None;
         g.events.clear();
+        g.started = Some(std::time::Instant::now());
+        g.last_phase = phase.into();
     }
     sh.abort.store(false, Ordering::SeqCst);
     let shared = sh.clone();
@@ -275,6 +281,10 @@ fn spawn_job(
             Err(_) => g.error = Some("internal error (recovered)".into()),
         }
         g.running = false;
+        g.took_ms = g
+            .started
+            .map(|t| t.elapsed().as_millis() as u64)
+            .unwrap_or(0);
         g.phase = "idle".into();
         shared.cv.notify_all();
     });
@@ -775,6 +785,12 @@ fn status(s: &mut Session, p: &Value) -> CmdResult {
     let tail = g.events.len().saturating_sub(50);
     Ok(json!({
         "phase": g.phase, "running": g.running, "error": g.error, "result": g.result,
+        "last_phase": g.last_phase,
+        "elapsed_ms": if g.running {
+            g.started.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0)
+        } else {
+            g.took_ms
+        },
         "title": g.script.as_ref().map(|s| s.title.clone()),
         "chapters": chapters,
         "performed": g.performance.as_ref().map(|p| p.takes.len()),

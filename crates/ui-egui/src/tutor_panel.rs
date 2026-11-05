@@ -93,6 +93,38 @@ fn describe(action: &Value) -> String {
     }
 }
 
+/// A progress event as a sentence a user can read.
+fn event_line(e: &Value) -> String {
+    let s = |k: &str| match &e[k] {
+        Value::String(v) => v.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    };
+    match e["event"].as_str().unwrap_or("") {
+        "asking_model" => tf(
+            "tutor.ev.asking",
+            &[("model", &s("model")), ("n", &s("attempt"))],
+        ),
+        "chapter" => tf(
+            "tutor.ev.chapter",
+            &[
+                ("n", &e["index"].as_u64().map_or(0, |i| i + 1).to_string()),
+                ("title", &s("title")),
+            ],
+        ),
+        "step" => tf("tutor.ev.step", &[("id", &s("step_id"))]),
+        "repair" => tf(
+            "tutor.ev.repair",
+            &[
+                ("id", &s("step_id")),
+                ("window", &s("window")),
+                ("n", &s("attempt")),
+            ],
+        ),
+        _ => e.to_string(),
+    }
+}
+
 impl UiApp {
     fn tutor_poll(&mut self, ctx: &egui::Context, force: bool) {
         let due = force
@@ -300,30 +332,80 @@ impl UiApp {
 
     fn tutor_status_lines(&self, ui: &mut egui::Ui) {
         let s = &self.tutor_ui.status;
-        if s["running"] == true {
-            let phase = s["phase"].as_str().unwrap_or("");
-            ui.label(
-                egui::RichText::new(tf("tutor.working", &[("phase", phase)]))
-                    .color(ACCENT)
-                    .strong(),
-            );
-        } else if let Some(e) = s["error"].as_str() {
-            ui.label(
-                egui::RichText::new(tf("tutor.failed", &[("e", e)]))
-                    .color(ERR)
-                    .size(13.0),
-            );
-        } else if !s["result"].is_null() {
-            ui.label(egui::RichText::new(t("tutor.done")).color(OK).strong());
-            if let Some(v) = s["result"]["video"].as_str() {
-                ui.label(egui::RichText::new(v).size(12.0).color(TEXT));
-            }
+        let secs = (s["elapsed_ms"].as_u64().unwrap_or(0) / 1000).to_string();
+        let running = s["running"] == true;
+        let failed = s["error"].as_str();
+        let finished = !running && failed.is_none() && !s["result"].is_null();
+        if !running && failed.is_none() && !finished {
+            return;
         }
-        if let Some(ev) = s["events"].as_array() {
-            for e in ev.iter().rev().take(4).rev() {
-                ui.label(egui::RichText::new(e.to_string()).size(11.0).color(MUTED));
-            }
-        }
+        let stroke = if running {
+            ACCENT
+        } else if failed.is_some() {
+            ERR
+        } else {
+            OK
+        };
+        egui::Frame::new()
+            .stroke(egui::Stroke::new(1.0, stroke))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::same(10))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                if running {
+                    let phase = s["phase"].as_str().unwrap_or("");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new().color(ACCENT));
+                        ui.label(
+                            egui::RichText::new(tf("tutor.working", &[("phase", phase)]))
+                                .color(ACCENT)
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new(tf("tutor.elapsed", &[("s", &secs)]))
+                                .size(12.0)
+                                .color(MUTED),
+                        );
+                    });
+                    // An indeterminate bar: the model call has no measurable progress.
+                    ui.add(
+                        egui::ProgressBar::new(0.0)
+                            .animate(true)
+                            .desired_height(6.0),
+                    );
+                } else if let Some(e) = failed {
+                    ui.label(
+                        egui::RichText::new(tf("tutor.failed", &[("e", e)]))
+                            .color(ERR)
+                            .size(13.0),
+                    );
+                } else if s["last_phase"] == "planning" {
+                    let r = &s["result"];
+                    let n = |k: &str| r[k].as_u64().unwrap_or(0).to_string();
+                    ui.label(
+                        egui::RichText::new(tf(
+                            "tutor.plan_ready",
+                            &[
+                                ("chapters", &n("chapters")),
+                                ("steps", &n("steps")),
+                                ("s", &secs),
+                            ],
+                        ))
+                        .color(OK)
+                        .strong(),
+                    );
+                } else {
+                    ui.label(egui::RichText::new(t("tutor.done")).color(OK).strong());
+                    if let Some(v) = s["result"]["video"].as_str() {
+                        ui.label(egui::RichText::new(v).size(12.0).color(TEXT));
+                    }
+                }
+                if let Some(ev) = s["events"].as_array() {
+                    for e in ev.iter().rev().take(5).rev() {
+                        ui.label(egui::RichText::new(event_line(e)).size(11.5).color(MUTED));
+                    }
+                }
+            });
     }
 
     fn tutor_script_tree(&mut self, ui: &mut egui::Ui, running: bool) -> Option<Act> {

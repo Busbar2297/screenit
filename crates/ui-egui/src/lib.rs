@@ -219,6 +219,10 @@ pub struct UiApp {
     about_from: View,
     /// The previous frame could be maximized, so leaving it restores a normal window.
     editor_chrome: bool,
+    /// Resizable/buttons state last sent to the window. Resending it every frame fights a drag.
+    chrome_sent: Option<bool>,
+    /// Scale of the monitor the window was last laid out for.
+    last_ppp: f32,
     /// Update the user chose to hide with Later (until the app restarts).
     pub(crate) update_hidden: Option<String>,
 }
@@ -279,6 +283,8 @@ impl UiApp {
             applied_lang: String::new(),
             about_from: View::Compact,
             editor_chrome: false,
+            chrome_sent: None,
+            last_ppp: 0.0,
             update_hidden: None,
         }
     }
@@ -320,7 +326,11 @@ impl UiApp {
     /// Resize the single window for a view and switch to it.
     pub(crate) fn enter_view(&mut self, ctx: &egui::Context, view: View) {
         self.view = view;
-        let [w, h] = match view {
+        self.apply_view_size(ctx);
+    }
+
+    fn apply_view_size(&self, ctx: &egui::Context) {
+        let [w, h] = match self.view {
             View::Compact => COMPACT_SIZE,
             View::Settings => [960.0, 660.0],
             View::About => [720.0, 560.0],
@@ -328,6 +338,19 @@ impl UiApp {
             View::Editor | View::Library => EDITOR_SIZE,
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+    }
+
+    /// Dragging the window to a monitor with another scale changes points-per-pixel; the fixed
+    /// size views then came out too large. Re-apply the logical size once when that happens.
+    fn follow_monitor_scale(&mut self, ctx: &egui::Context) {
+        let ppp = ctx.pixels_per_point();
+        if self.last_ppp > 0.0
+            && (ppp - self.last_ppp).abs() > 0.01
+            && !matches!(self.view, View::Editor | View::Library)
+        {
+            self.apply_view_size(ctx);
+        }
+        self.last_ppp = ppp;
     }
 
     /// Open About, remembering the view the Back button returns to.
@@ -346,6 +369,10 @@ impl UiApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         }
         self.editor_chrome = grow;
+        if self.chrome_sent == Some(grow) {
+            return;
+        }
+        self.chrome_sent = Some(grow);
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(grow));
         ctx.send_viewport_cmd(egui::ViewportCommand::EnableButtons {
             close: true,
@@ -753,6 +780,7 @@ impl eframe::App for UiApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.refresh_texture(ctx);
+        self.follow_monitor_scale(ctx);
         self.sync_maximize_button(ctx);
     }
 

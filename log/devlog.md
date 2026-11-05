@@ -183,6 +183,12 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Multi-monitor window, calmer stop latch, visible progress
+- Window: resizable/buttons commands were resent every frame (fought the drag); now sent on change only, and the fixed view size is re-applied when the monitor scale changes.
+- Stop latch: takeover distance is 60 px (was 14), and the cursor position is re-read while our own jump lands, so mixed-DPI rounding cannot read as "user moved the mouse".
+- Tutorial panel: a framed status card with spinner, elapsed time, indeterminate bar and readable events; planning ends with "Plan ready: N chapters, M steps". tutor.status adds `elapsed_ms` and `last_phase`.
+- Open: monitor-scale fix could not be tried here on two screens; needs a check on the user's setup.
+
 ## 2026-11-05 - Repair a stuck tutorial step from a screenshot
 - When a rehearsal step cannot find its control, the run photographs the window in front (including a dialog or menu that just appeared) and asks the vision model for the next step. The prompt includes each control's real screen rectangle, and the corrected step is written back into the script.
 
