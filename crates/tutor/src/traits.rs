@@ -226,12 +226,20 @@ impl Rig {
                 return Ok(w);
             }
         }
-        if app.launch.is_empty() {
+        let launch = app.launch.trim();
+        if launch.is_empty() {
             return Err(TutorError::Launch(format!(
                 "no window titled `{}` and nothing to launch",
                 app.window_title
             )));
         }
-        self.launcher.launch(&app.launch, &app.args)
+        // A bare name is the window title typed into the app box. Use that window. A path still launches.
+        if !launch.contains('\\')
+            && !launch.contains('/')
+            && let Some(w) = self.launcher.find_window(launch)
+        {
+            return Ok(w);
+        }
+        self.launcher.launch(launch, &app.args)
     }
 }

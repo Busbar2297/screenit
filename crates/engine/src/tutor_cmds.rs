@@ -292,7 +292,7 @@ fn chat_setup(s: &Session) -> Option<(Arc<dyn screenit_tutor::LlmChat>, ChatOpti
             api_key: o.llm_api_key.clone(),
             timeout_secs: o.llm_timeout_secs.max(120),
             json: true,
-            max_tokens: 4096,
+            max_tokens: 8192,
         },
     ))
 }
@@ -310,6 +310,24 @@ fn app_of(a: &Args<'_>) -> Result<AppTarget, CommandError> {
         args: a.opt_str("args")?.unwrap_or("").to_string(),
         window_title: a.opt_str("window_title")?.unwrap_or("").to_string(),
     })
+}
+
+fn model_failure(model: &str, reply: &str, err: TutorError) -> TutorError {
+    let who = if model.is_empty() {
+        "the model loaded in LM Studio".to_string()
+    } else {
+        model.to_string()
+    };
+    let detail = match err {
+        TutorError::Llm(m) => m,
+        other => other.to_string(),
+    };
+    let snippet: String = reply
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(140)
+        .collect();
+    TutorError::Llm(format!("{who}: {detail}. Reply: {snippet}"))
 }
 
 fn plan(s: &mut Session, p: &Value) -> CmdResult {
@@ -350,10 +368,13 @@ fn plan(s: &mut Session, p: &Value) -> CmdResult {
             app.window_title = w.title.clone();
         }
         let mut msgs = plan_messages(&goal, &app.window_title, &audience, max_steps, &snap);
+        let model = copts.model.trim().to_string();
         let mut last = None;
+        let mut last_reply = String::new();
         for attempt in 0..2 {
-            sh.event(json!({"event": "asking_model", "attempt": attempt + 1}));
+            sh.event(json!({"event": "asking_model", "model": model, "attempt": attempt + 1}));
             let reply = chat.chat(&msgs, &copts)?;
+            last_reply = reply.clone();
             match parse_script(&reply, &goal, app.clone()) {
                 Ok(script) => {
                     let out = json!({"title": script.title, "chapters": script.chapters.len(), "steps": script.step_count()});
@@ -366,13 +387,17 @@ fn plan(s: &mut Session, p: &Value) -> CmdResult {
                         content: reply.chars().take(4000).collect(),
                     });
                     msgs.push(ChatMessage::user(format!(
-                        "That reply was rejected: {e}. Reply again with only the JSON object."
+                        "That reply was rejected: {e}. Reply again with only the JSON object. The first character must be {{."
                     )));
                     last = Some(e);
                 }
             }
         }
-        Err(last.unwrap_or_else(|| TutorError::Llm("no usable script".into())))
+        Err(model_failure(
+            &model,
+            &last_reply,
+            last.unwrap_or_else(|| TutorError::Llm("no usable script".into())),
+        ))
     })
 }
 

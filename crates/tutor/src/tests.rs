@@ -382,6 +382,19 @@ fn recorder_is_stopped_when_a_step_fails() {
 }
 
 #[test]
+fn a_bare_app_name_uses_the_open_window() {
+    let (w, rig, _) = app();
+    let info = rig
+        .window(&AppTarget {
+            launch: "notes".into(),
+            ..AppTarget::default()
+        })
+        .unwrap();
+    assert_eq!(info.title, "Notes");
+    assert!(w.launched().is_empty());
+}
+
+#[test]
 fn wait_and_key_steps_work() {
     let (w, rig, _) = app();
     let mut s: TutorialScript = serde_json::from_str(

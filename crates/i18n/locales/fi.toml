@@ -201,3 +201,6 @@
 "tutor.load" = "Load"
 "tutor.no_script" = "No script yet. Write a goal and press Plan."
 "tutor.chapter_checked" = "rehearsed"
+"tutor.model" = "Language model: {model}. This is the same model Grab text uses."
+"tutor.model_missing" = "No language model is set. Choose it in Settings, under Grab text."
+"tutor.app_hint" = "notepad.exe or a full path. Leave empty when the app is already open."

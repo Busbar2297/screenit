@@ -5,7 +5,7 @@ use crate::error::{TutorError, TutorResult};
 use crate::script::{Step, TutorialScript};
 use crate::traits::{ChatMessage, UiSnapshot};
 
-const SCHEMA: &str = r#"Reply with ONE JSON object and nothing else:
+const SCHEMA: &str = r#"The whole reply is ONE JSON object. The first character is {. No markdown and no explanation.
 {"title":str,"chapters":[{"title":str,"summary":str,"steps":[STEP,...]}]}
 STEP = {"narration":str,"action":ACTION,"expect":[EXPECT,...],"destructive":bool?}
 ACTION is one of:
@@ -78,12 +78,48 @@ pub fn repair_messages(
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
 
-/// Pull the first balanced JSON object out of a reply that may carry prose or a code fence.
-pub fn extract_json(text: &str) -> Option<&str> {
-    let start = text.find('{')?;
-    let bytes = text.as_bytes();
+/// Pull a JSON object out of a reply. Thinking blocks are skipped, an opening brace that never
+/// closes does not hide a later object, and a script (`chapters`) wins over a stray object.
+pub fn extract_json(text: &str) -> Option<String> {
+    let stripped = strip_think(text);
+    pick(&stripped).or_else(|| if stripped == text { None } else { pick(text) })
+}
+
+fn strip_think(text: &str) -> String {
+    const OPENS: &[&str] = &["<think>", "<|think|>", "<|channel>thought"];
+    const CLOSES: &[&str] = &["</think>", "<|/think|>", "<channel|>"];
+    let mut out = String::new();
+    let mut i = 0;
+    while i < text.len() {
+        let rest = &text[i..];
+        let open = OPENS.iter().find(|m| rest.starts_with(*m)).copied();
+        if let Some(marker) = open {
+            let after = i + marker.len();
+            let tail = &text[after..];
+            if let Some((at, n)) = CLOSES
+                .iter()
+                .filter_map(|end| tail.find(end).map(|p| (p, end.len())))
+                .min_by_key(|(p, _)| *p)
+            {
+                i = after + at + n;
+                continue;
+            }
+        }
+        let ch = rest.chars().next().unwrap_or('\u{0}');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// The first balanced `{...}` in `slice`, which must start at `{`.
+fn balanced(slice: &str) -> Option<&str> {
+    let bytes = slice.as_bytes();
+    if bytes.first() != Some(&b'{') {
+        return None;
+    }
     let (mut depth, mut in_str, mut esc) = (0i32, false, false);
-    for (i, &b) in bytes.iter().enumerate().skip(start) {
+    for (i, &b) in bytes.iter().enumerate() {
         if in_str {
             if esc {
                 esc = false;
@@ -100,13 +136,36 @@ pub fn extract_json(text: &str) -> Option<&str> {
             b'}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return text.get(start..=i);
+                    return slice.get(..=i);
                 }
             }
             _ => {}
         }
     }
     None
+}
+
+fn pick(text: &str) -> Option<String> {
+    let mut step: Option<String> = None;
+    let mut any: Option<String> = None;
+    let mut rest = text;
+    while let Some(i) = rest.find('{') {
+        let slice = &rest[i..];
+        if let Some(obj) = balanced(slice)
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(obj)
+        {
+            if v.get("chapters").is_some() {
+                return Some(obj.to_string());
+            }
+            if step.is_none() && v.get("action").is_some() {
+                step = Some(obj.to_string());
+            } else if any.is_none() && v.is_object() {
+                any = Some(obj.to_string());
+            }
+        }
+        rest = &slice[1..];
+    }
+    step.or(any)
 }
 
 pub fn parse_script(
@@ -116,7 +175,7 @@ pub fn parse_script(
 ) -> TutorResult<TutorialScript> {
     let json = extract_json(reply)
         .ok_or_else(|| TutorError::Llm("the reply holds no JSON object".into()))?;
-    let mut s: TutorialScript = serde_json::from_str(json)
+    let mut s: TutorialScript = serde_json::from_str(&json)
         .map_err(|e| TutorError::Llm(format!("the script does not parse: {e}")))?;
     s.goal = clip(goal, 2000);
     s.app = app;
@@ -127,7 +186,7 @@ pub fn parse_script(
 pub fn parse_step(reply: &str, keep_id: &str) -> TutorResult<Step> {
     let json = extract_json(reply)
         .ok_or_else(|| TutorError::Llm("the reply holds no JSON object".into()))?;
-    let mut s: Step = serde_json::from_str(json)
+    let mut s: Step = serde_json::from_str(&json)
         .map_err(|e| TutorError::Llm(format!("the step does not parse: {e}")))?;
     s.id = keep_id.to_string();
     s.verified_rect = None;
@@ -143,9 +202,17 @@ mod tests {
     #[test]
     fn extracts_json_from_prose_and_fences() {
         let t = "Sure!\n```json\n{\"a\":{\"b\":\"}\"},\"c\":1}\n```\nbye";
-        assert_eq!(extract_json(t), Some("{\"a\":{\"b\":\"}\"},\"c\":1}"));
+        assert_eq!(
+            extract_json(t).as_deref(),
+            Some("{\"a\":{\"b\":\"}\"},\"c\":1}")
+        );
         assert_eq!(extract_json("no json"), None);
         assert_eq!(extract_json("{\"unclosed\":1"), None);
+        let thought =
+            "<think>draft {title and never close</think>\n{\"title\":\"T\",\"chapters\":[]}";
+        assert!(extract_json(thought).unwrap().contains("chapters"));
+        let later = "note {this then {\"title\":\"T\",\"chapters\":[]}";
+        assert!(extract_json(later).unwrap().contains("chapters"));
     }
 
     #[test]

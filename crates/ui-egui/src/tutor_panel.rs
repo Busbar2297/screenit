@@ -172,6 +172,13 @@ impl UiApp {
             .show(ui, |ui| {
                 ui.label(egui::RichText::new(t("tutor.title")).size(24.0).strong());
                 ui.label(egui::RichText::new(t("tutor.hint")).size(13.0).color(MUTED));
+                let model = self.session.settings.ocr.llm_model.trim().to_string();
+                let model_line = if model.is_empty() {
+                    t("tutor.model_missing")
+                } else {
+                    tf("tutor.model", &[("model", &model)])
+                };
+                ui.label(egui::RichText::new(model_line).size(13.0).color(MUTED));
                 ui.add_space(10.0);
                 self.tutor_form(ui, running);
                 ui.add_space(8.0);
@@ -228,7 +235,11 @@ impl UiApp {
             );
             egui::Grid::new("tutor_form").num_columns(2).show(ui, |ui| {
                 ui.label(egui::RichText::new(t("tutor.app")).color(MUTED));
-                ui.add(egui::TextEdit::singleline(&mut u.launch).desired_width(420.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut u.launch)
+                        .hint_text(t("tutor.app_hint"))
+                        .desired_width(420.0),
+                );
                 ui.end_row();
                 ui.label(egui::RichText::new(t("tutor.window")).color(MUTED));
                 ui.add(egui::TextEdit::singleline(&mut u.window).desired_width(420.0));

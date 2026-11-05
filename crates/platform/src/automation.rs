@@ -643,6 +643,20 @@ fn lower(s: &str) -> String {
     s.to_lowercase()
 }
 
+/// A program is started directly. A document path or a URL is opened by the shell.
+/// A bare name is a program (`notepad` finds `notepad.exe` on PATH), never Explorer.
+fn open_with_shell(target: &str) -> bool {
+    let t = target.trim();
+    let l = lower(t);
+    if l.starts_with("http://") || l.starts_with("https://") || l.starts_with("ms-") {
+        return true;
+    }
+    if l.ends_with(".exe") || l.ends_with(".bat") || l.ends_with(".cmd") || l.ends_with(".com") {
+        return false;
+    }
+    t.contains('\\') || t.contains('/')
+}
+
 impl AppLauncher for Win32Launcher {
     fn launch(&self, target: &str, args: &str) -> TutorResult<WindowInfo> {
         let bad = |m: &str| Err(TutorError::Launch(m.to_string()));
@@ -656,8 +670,8 @@ impl AppLauncher for Win32Launcher {
             );
         }
         let before: Vec<u64> = top_windows().iter().map(|w| w.hwnd).collect();
-        let is_exe = lower(target.trim()).ends_with(".exe");
-        let spawned = if is_exe {
+        let program = !open_with_shell(target);
+        let spawned = if program {
             std::process::Command::new(target.trim())
                 .args(args.split_whitespace().take(32))
                 .spawn()
@@ -666,7 +680,11 @@ impl AppLauncher for Win32Launcher {
                 .arg(target.trim())
                 .spawn()
         };
-        let child = spawned.map_err(|e| TutorError::Launch(format!("{target}: {e}")))?;
+        let child = spawned.map_err(|e| {
+            TutorError::Launch(format!(
+                "`{target}` did not start ({e}). Give the full path to the .exe, or set Window title to an app that is already open and leave App to launch empty."
+            ))
+        })?;
         let pid = child.id();
         let end = Instant::now() + Duration::from_secs(15);
         while Instant::now() < end {
@@ -674,7 +692,7 @@ impl AppLauncher for Win32Launcher {
             let wins = top_windows();
             let hit = wins
                 .iter()
-                .find(|w| is_exe && w.pid == pid)
+                .find(|w| program && w.pid == pid)
                 .or_else(|| wins.iter().find(|w| !before.contains(&w.hwnd)));
             if let Some(w) = hit {
                 pause(700);
@@ -720,5 +738,18 @@ impl AppLauncher for Win32Launcher {
         Err(TutorError::Launch(
             "could not bring the window to the front".into(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_with_shell;
+
+    #[test]
+    fn a_program_name_is_not_opened_with_explorer() {
+        assert!(!open_with_shell("notepad"));
+        assert!(!open_with_shell("C:\\Windows\\notepad.exe"));
+        assert!(open_with_shell("https://example.com"));
+        assert!(open_with_shell("C:\\Users\\me\\Notes.pdf"));
     }
 }

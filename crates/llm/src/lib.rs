@@ -102,14 +102,64 @@ pub fn request_body(image: &Raster, cfg: &LlmConfig) -> Result<Value, CaptureErr
     Ok(body)
 }
 
+fn content_text(v: &Value) -> Option<String> {
+    let text = match v {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(Value::as_str).or_else(|| p.as_str()))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => return None,
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 /// Pull the reply text out of a chat-completions response.
 pub fn parse_reply(body: &str) -> Result<String, CaptureError> {
     let v: Value = serde_json::from_str(body).map_err(|e| err("response", e))?;
-    let text = v
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
+    let msg = v
+        .pointer("/choices/0/message")
         .ok_or_else(|| err("response", "no text in the reply"))?;
-    Ok(text.trim().to_string())
+    content_text(msg.get("content").unwrap_or(&Value::Null))
+        .ok_or_else(|| err("response", "no text in the reply"))
+}
+
+/// Tutor replies: a reasoning model may leave the JSON in `reasoning_content` and put prose in
+/// `content`. Prefer whichever side actually holds an object.
+pub fn parse_chat_reply(body: &str) -> Result<String, CaptureError> {
+    let v: Value = serde_json::from_str(body).map_err(|e| err("response", e))?;
+    let msg = v
+        .pointer("/choices/0/message")
+        .ok_or_else(|| err("response", "no text in the reply"))?;
+    let content = msg
+        .get("content")
+        .and_then(content_text)
+        .unwrap_or_default();
+    let reasoning = msg
+        .get("reasoning_content")
+        .and_then(content_text)
+        .or_else(|| msg.get("reasoning").and_then(content_text))
+        .unwrap_or_default();
+    let text = if content.contains('{') || reasoning.is_empty() {
+        content
+    } else if reasoning.contains('{') {
+        reasoning
+    } else if !content.is_empty() {
+        content
+    } else {
+        reasoning
+    };
+    if text.is_empty() {
+        Err(err("response", "no text in the reply"))
+    } else {
+        Ok(text)
+    }
 }
 
 pub fn parse_models(body: &str) -> Result<Vec<String>, CaptureError> {
@@ -213,7 +263,7 @@ pub fn chat_body(
         })
         .collect();
     let mut body = json!({
-        "temperature": 0.2,
+        "temperature": 0,
         "max_tokens": opts.max_tokens.clamp(256, 8192),
         "messages": msgs,
     });
@@ -250,7 +300,7 @@ impl screenit_tutor::LlmChat for LmStudio {
             .limit(MAX_RESPONSE)
             .read_to_string()
             .map_err(|e| to(err("read", e)))?;
-        parse_reply(&text).map_err(to)
+        parse_chat_reply(&text).map_err(to)
     }
 }
 #[cfg(test)]
@@ -399,6 +449,14 @@ mod tests {
             "{req}"
         );
         assert!(LmStudio.chat(&[], &ChatOptions::default()).is_err());
+    }
+
+    #[test]
+    fn chat_reply_prefers_the_side_that_holds_json() {
+        let prose = r#"{"choices":[{"message":{"content":"let me think","reasoning_content":"{\"title\":\"T\",\"chapters\":[]}"}}]}"#;
+        assert!(parse_chat_reply(prose).unwrap().contains("chapters"));
+        let parts = r#"{"choices":[{"message":{"content":[{"type":"text","text":" hello "}]}}]}"#;
+        assert_eq!(parse_reply(parts).unwrap(), "hello");
     }
 
     #[test]
