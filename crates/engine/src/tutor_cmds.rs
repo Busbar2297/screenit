@@ -41,6 +41,17 @@ struct Inner {
     /// Steps or frames finished, and how many the job expects.
     progress_done: u32,
     progress_total: u32,
+    /// Screen recordings waiting to be added to the library on the session thread.
+    captures: Vec<Capture>,
+}
+
+/// A finished tutorial video. Filed by `tutor.status` / `tutor.wait`, which run on the session.
+struct Capture {
+    path: PathBuf,
+    title: String,
+    app: String,
+    width: u32,
+    height: u32,
 }
 
 /// State shared between commands and the background job thread.
@@ -697,6 +708,7 @@ fn perform_cmd(s: &mut Session, p: &Value) -> CmdResult {
         let text =
             serde_json::to_string_pretty(&out).map_err(|e| TutorError::Record(e.to_string()))?;
         std::fs::write(&sidecar, text).map_err(|e| TutorError::Record(e.to_string()))?;
+        queue_captures(sh, &out, &script.app.window_title);
         r?;
         Ok(json!({"takes": out.takes.len(), "performance": sidecar}))
     })
@@ -788,6 +800,16 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
         if opts.captions {
             std::fs::write(&srt, plan.srt()).map_err(|e| TutorError::Record(e.to_string()))?;
         }
+        queue_capture(
+            sh,
+            Capture {
+                path: out.clone(),
+                title: video_title(&perf.title, &out),
+                app: String::new(),
+                width: res.width,
+                height: res.height,
+            },
+        );
         Ok(json!({
             "video": out, "srt": opts.captions.then_some(srt),
             "duration_ms": plan.total_ms, "frames": res.frames,
@@ -796,8 +818,80 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
     })
 }
 
+fn video_title(show: &str, path: &std::path::Path) -> String {
+    let show = show.trim();
+    if !show.is_empty() {
+        return show.to_string();
+    }
+    path.file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "tutorial".into())
+}
+
+fn queue_capture(sh: &TutorShared, c: Capture) {
+    if c.path.as_os_str().is_empty() {
+        return;
+    }
+    sh.lock().captures.push(c);
+}
+
+/// Chapter clips are screen recordings, so they join the library the same way `record.stop` does.
+fn queue_captures(sh: &TutorShared, out: &Performance, app: &str) {
+    let app = app.trim().to_string();
+    for take in &out.takes {
+        let title = if take.title.trim().is_empty() {
+            video_title(&out.title, &take.path)
+        } else if out.title.trim().is_empty() {
+            take.title.clone()
+        } else {
+            format!("{} - {}", out.title.trim(), take.title.trim())
+        };
+        queue_capture(
+            sh,
+            Capture {
+                path: take.path.clone(),
+                title,
+                app: app.clone(),
+                width: out.region.w,
+                height: out.region.h,
+            },
+        );
+    }
+}
+
+fn file_captures(s: &mut Session) {
+    let pending = std::mem::take(&mut s.tutor.lock().captures);
+    if pending.is_empty() {
+        return;
+    }
+    let created = s.services.clock.unix_secs();
+    let mut retry = Vec::new();
+    for c in pending {
+        let added = s.library.add(screenit_library::Entry {
+            id: 0,
+            kind: screenit_library::Kind::Video,
+            path: c.path.clone(),
+            title: c.title.clone(),
+            app: c.app.clone(),
+            url: None,
+            created,
+            width: c.width,
+            height: c.height,
+            tags: vec!["tutorial".into()],
+            body: String::new(),
+        });
+        if added.is_err() {
+            retry.push(c);
+        }
+    }
+    if !retry.is_empty() {
+        s.tutor.lock().captures.extend(retry);
+    }
+}
+
 fn status(s: &mut Session, p: &Value) -> CmdResult {
     Args::new(p, &[])?;
+    file_captures(s);
     let g = s.tutor.lock();
     let chapters: Vec<Value> = g
         .script
@@ -1554,12 +1648,31 @@ mod tests {
         assert_eq!(st["error"], Value::Null, "{st}");
         assert_eq!(st["performed"], 2);
         assert!(dir.join("Notes_demo_.tutor.json").is_file());
+        let clips = s.library.query(&screenit_library::Query {
+            kind: Some(screenit_library::Kind::Video),
+            tag: Some("tutorial".into()),
+            ..screenit_library::Query::default()
+        });
+        assert_eq!(clips.len(), 2, "{clips:?}");
+        assert!(clips.iter().all(|e| e.app == "notes" && e.width > 0));
+        assert!(clips.iter().any(|e| e.title == "Notes basics - Write"));
 
         let out = dir.join("final.mp4");
         s.dispatch("tutor.produce", &json!({"output": out, "fps": 10}))
             .unwrap();
         let st = done(&mut s);
         assert_eq!(st["error"], Value::Null, "{st}");
+        let filed = s.library.query(&screenit_library::Query {
+            kind: Some(screenit_library::Kind::Video),
+            tag: Some("tutorial".into()),
+            ..screenit_library::Query::default()
+        });
+        assert!(
+            filed
+                .iter()
+                .any(|e| e.path == out && e.title == "Notes basics"),
+            "{filed:?}"
+        );
         let r = &st["result"];
         assert!(r["frames"].as_u64().unwrap() > 20, "{r}");
         assert!(r["chapters"].as_str().unwrap().contains("Write"));

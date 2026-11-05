@@ -240,3 +240,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Produce reads each recording straight through and reuses a frame it already decoded. A 10 second clip no longer restarts the decoder a few hundred times.
 - While Plan (or Produce) runs, an always-on-top bar shows the timer, a progress count and Stop. screenIt comes to the front when the job finishes, or when the model asks a question.
 - Plan writes the script to a `.json` file (the script box, or `tutorial-<time>.json` in the output folder) and shows that path.
+
+## 2026-11-05 - Tutorial recordings join the library
+- Record files each chapter clip as a library video (tag `tutorial`, the app's window title). Produce files the finished movie the same way. Both show up on the next `tutor.status` or `tutor.wait`.
