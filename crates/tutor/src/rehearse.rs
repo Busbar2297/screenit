@@ -224,11 +224,29 @@ pub fn rehearse(
                             let msgs = msgs.clone();
                             let copts = copts.clone();
                             move || match &shot {
-                                Some(image) => chat.chat_image(&msgs, image, &copts),
+                                // A server that refuses the picture still gets the text.
+                                Some(image) => chat
+                                    .chat_image(&msgs, image, &copts)
+                                    .or_else(|_| chat.chat(&msgs, &copts)),
                                 None => chat.chat(&msgs, &copts),
                             }
                         })??;
-                        script.chapters[ci].steps[si] = parse_step(&reply, &step.id)?;
+                        match parse_step(&reply, &step.id) {
+                            Ok(fixed) => script.chapters[ci].steps[si] = fixed,
+                            Err(e) => {
+                                // Not a step: count it as an attempt and ask again.
+                                if attempt >= opts.max_repairs {
+                                    let said: String = reply
+                                        .chars()
+                                        .filter(|c| !c.is_control())
+                                        .take(160)
+                                        .collect();
+                                    return Err(TutorError::Llm(format!(
+                                        "{ctx}: {e}. Reply: {said}"
+                                    )));
+                                }
+                            }
+                        }
                     }
                     Err(e) => return Err(e),
                 }

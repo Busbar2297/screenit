@@ -70,8 +70,12 @@ pub fn repair_messages(
     snap: &UiSnapshot,
     look: RepairLook<'_>,
 ) -> Vec<ChatMessage> {
+    // Only the step part of the schema: a small model window has no room for the rest.
+    let step_schema = SCHEMA
+        .split_once("STEP = ")
+        .map_or(SCHEMA, |(_, rest)| rest);
     let system = format!(
-        "You repair one failed step of a UI tutorial script. Reply with ONE JSON STEP object only.\n{SCHEMA}\n\
+        "You repair one failed step of a UI tutorial script. Reply with ONE JSON STEP object only, first character {{.\nSTEP = {step_schema}\n\
          A SEL may also carry \"rect\":{{\"x\":int,\"y\":int,\"w\":int,\"h\":int}}: copy it from the control list."
     );
     let recent: Vec<&Step> = done.iter().rev().take(3).rev().collect();
@@ -94,7 +98,7 @@ pub fn repair_messages(
         serde_json::to_string(&recent).unwrap_or_default(),
         serde_json::to_string(failed).unwrap_or_default(),
         clip(error, 300),
-        snap.compact_within(40, 2500, true)
+        snap.compact_within(30, 1800, true)
     );
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
