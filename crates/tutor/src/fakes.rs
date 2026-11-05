@@ -125,6 +125,10 @@ impl FakeWorld {
         lock(&self.w).foreground_pid = pid;
     }
 
+    pub fn set_title(&self, title: &str) {
+        lock(&self.w).window.title = title.into();
+    }
+
     pub fn set_alive(&self, alive: bool) {
         lock(&self.w).alive = alive;
     }
@@ -140,6 +144,13 @@ impl FakeWorld {
     /// Screenshot returned for the main window and for a window set with `set_front`.
     pub fn set_shot(&self, shot: Shot) {
         lock(&self.w).shot = Some(shot);
+    }
+
+    /// Drop the dialog from `set_front`. The main window is in front again.
+    pub fn clear_front(&self) {
+        let mut w = lock(&self.w);
+        w.front = None;
+        w.front_elements.clear();
     }
 
     /// A dialog of the same app, now in front. Snapshots of its handle see `elements`.

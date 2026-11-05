@@ -17,6 +17,9 @@ pub struct Guard {
     pub allow_destructive: bool,
     /// Actions still allowed in this run.
     pub budget: u32,
+    /// The app this run started on. Dialogs may change `target_pid`; this does not.
+    pub home_pid: u32,
+    pub home_window: u64,
 }
 
 impl Guard {
@@ -27,6 +30,8 @@ impl Guard {
             target_window,
             allow_destructive: false,
             budget: 5000,
+            home_pid: target_pid,
+            home_window: target_window,
         }
     }
 

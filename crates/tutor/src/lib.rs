@@ -15,6 +15,7 @@
 mod error;
 pub mod explore;
 pub mod fakes;
+mod hand;
 pub mod keys;
 pub mod path;
 pub mod perform;

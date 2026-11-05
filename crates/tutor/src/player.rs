@@ -15,6 +15,8 @@ pub enum Mode {
     Rehearse,
     /// Human pace, for the recording.
     Perform,
+    /// A short visible curve. Used while the model is driving, so the app sees the pointer arrive.
+    Guide,
 }
 
 /// What happened at one step, timed from the start of its chapter take.
@@ -131,6 +133,19 @@ impl<'a> Player<'a> {
                     self.rig.input.move_to(p.x, p.y)?;
                 }
                 self.pause(280)?;
+            }
+            Mode::Guide => {
+                let path = cursor_path(self.last_pos, to);
+                let n = path.len().max(1);
+                let step = (n / 8).max(1);
+                for (i, p) in path.iter().enumerate() {
+                    if i + 1 != n && i % step != 0 {
+                        continue;
+                    }
+                    self.check_alive()?;
+                    self.rig.pace.sleep_ms(p.dt_ms.min(16));
+                    self.rig.input.move_to(p.x, p.y)?;
+                }
             }
         }
         self.last_pos = to;

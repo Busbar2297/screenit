@@ -121,31 +121,11 @@ pub(crate) fn pin(step: &mut Step, rect: Option<Rect>) {
     }
 }
 
-/// Point the player at a dialog, menu or other window that appeared in front of the target.
-/// screenIt's own window is never followed: it is a different process and is not listed.
+/// Point the player at the window the app is showing now, including one that just changed title
+/// or a dialog that opened. When that window closes, come back to the app the run started on.
+/// screenIt's own window is never followed.
 pub(crate) fn follow_front(player: &mut Player) -> Option<String> {
-    let front = player.rig.ui.foreground()?;
-    if front.hwnd == 0 || front.hwnd == player.window.hwnd {
-        return None;
-    }
-    let same_app = front.pid != 0 && front.pid == player.window.pid;
-    let listed = player
-        .rig
-        .ui
-        .other_windows()
-        .iter()
-        .any(|w| w.hwnd == front.hwnd);
-    if !same_app && !listed {
-        return None;
-    }
-    player.window = front.clone();
-    player.guard.target_window = front.hwnd;
-    player.guard.target_pid = front.pid;
-    Some(if front.title.is_empty() {
-        "untitled".into()
-    } else {
-        front.title
-    })
+    crate::hand::track(player, true)
 }
 
 /// Run chapters `from_chapter..`. On failure the script keeps the progress made so far.
@@ -202,7 +182,13 @@ pub fn rehearse(
                         attempt += 1;
                         report.repairs += 1;
                         let switched = follow_front(&mut player);
-                        let snap = rig.ui.snapshot(player.window.hwnd)?;
+                        let snap = match rig.ui.snapshot(player.window.hwnd) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                follow_front(&mut player);
+                                rig.ui.snapshot(player.window.hwnd)?
+                            }
+                        };
                         let shot = rig.ui.capture(player.window.hwnd);
                         on_event(Event::Repair {
                             step_id: step.id.clone(),

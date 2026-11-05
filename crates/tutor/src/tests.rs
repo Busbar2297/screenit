@@ -574,3 +574,85 @@ fn wait_and_key_steps_work() {
     }
     assert!(!w.has("Editor"));
 }
+
+#[test]
+fn a_picture_point_lands_on_the_control_under_it() {
+    use crate::hand::{aim, picture_point};
+    let (_, rig, _) = app();
+    let snap = rig.ui.snapshot(7).unwrap();
+    assert_eq!(picture_point(snap.window.rect, 50, 36), (140, 121));
+    assert_eq!(picture_point(snap.window.rect, 0, 0), (100, 100));
+    let sel = aim(&snap, 50, 36).unwrap();
+    assert_eq!(sel.name, "New");
+    assert!(aim(&snap, 140, 4000).unwrap_err().contains("0 to 1000"));
+}
+
+#[test]
+fn a_new_title_is_kept_and_a_closed_dialog_returns_home() {
+    use crate::hand::{see, track};
+    use crate::player::Player;
+    let (w, rig, _) = app();
+    let mut player = Player::new(&rig, guard(), win(&rig), Mode::Guide);
+    w.set_title("My Note - Notes");
+    assert!(track(&mut player, false).is_none());
+    assert_eq!(player.window.title, "My Note - Notes");
+    assert_eq!(player.window.hwnd, 7);
+
+    w.set_front("Save As", vec![]);
+    let scene = see(&mut player, None, false).unwrap();
+    assert_eq!(scene.snap.window.title, "Save As");
+    assert_eq!(player.guard.home_pid, FakeWorld::PID);
+    w.clear_front();
+    let back = see(&mut player, Some(&scene.snap.window), false).unwrap();
+    assert_eq!(back.snap.window.hwnd, 7);
+    assert_eq!(back.snap.window.title, "My Note - Notes");
+    assert!(back.changed.contains("Save As"), "{}", back.changed);
+    assert!(back.changed.contains("My Note - Notes"), "{}", back.changed);
+}
+
+#[test]
+fn explore_points_at_the_picture_and_follows_a_title_change() {
+    use crate::explore::{ExploreOpts, empty_script, explore};
+    use crate::script::Action;
+    let (w, rig, _) = app();
+    w.rule(
+        Trigger::Click("New".into()),
+        vec![Effect::Retitle("My Note - Notes".into())],
+    );
+    let llm = FakeLlm::new(vec![
+        Ok(r#"{"title":"T","chapters":[{"title":"Write","goal":"open"}]}"#.into()),
+        Ok(r#"{"narration":"Open a new note.","do":"click","x":50,"y":36}"#.into()),
+        Ok(r#"{"done":true}"#.into()),
+    ]);
+    let mut s = empty_script("open a note", script().app);
+    let opts = ExploreOpts {
+        max_steps: 5,
+        max_misses: 3,
+        chat: llm.clone(),
+        copts: ChatOptions::default(),
+    };
+    explore(
+        &mut s,
+        &rig,
+        guard(),
+        win(&rig),
+        &opts,
+        &mut |_| {},
+        &mut |_| Ok(crate::explore::Answer::Finish),
+    )
+    .unwrap();
+    assert!(w.has("Editor"));
+    let prompt = &llm.calls()[2][1].content;
+    assert!(
+        prompt.contains("My Note - Notes"),
+        "the new title is part of the next look: {prompt}"
+    );
+    assert!(
+        llm.calls()[1][1].content.contains("0 to 1000"),
+        "the model is told to point inside the picture"
+    );
+    match &s.chapters[0].steps[0].action {
+        Action::Click { target } => assert_eq!(target.name, "New"),
+        other => panic!("expected a click, got {other:?}"),
+    }
+}

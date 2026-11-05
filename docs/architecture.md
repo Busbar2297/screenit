@@ -47,8 +47,11 @@ and the production plan behind traits (`UiTree`, `InputDriver`, `AppLauncher`, `
 `LlmChat` for LM Studio. Engine commands `ui.*`, `input.*`, `app.launch` and `tutor.*` run
 long steps as background jobs (`tutor.status`, `tutor.wait`, `tutor.abort`). `tutor.explore`
 (`tutor::explore`) builds the script from the live app instead of guessing it: a storyboard of
-chapters, then one model move per turn on the current UIA tree plus a screenshot, kept only when
-the window changed; when stuck or before a risky step it asks the user (`tutor.answer`).
+chapters, then one pointer move per turn. The model sees the window (picture plus controls) and
+answers with a mouse or keyboard instruction; points are 0–1000 inside that picture, so a resized
+screenshot still lands. A title change is kept, a dialog is followed and a closed one returns to
+the app the run started on. A move is kept only when the screen changed; when stuck or before a
+risky step it asks the user (`tutor.answer`).
 Flow: explore (or plan), rehearse
 (a failed step is repaired from a screenshot of the window in front, and the corrected step is
 written back into the script), perform (one recording per chapter), produce (chapter cards,

@@ -33,8 +33,10 @@ time out after 60 s.
 
 The AI tutorial commands are ordinary commands: `tutor.explore`, `tutor.plan`, `tutor.rehearse`,
 `tutor.perform` and `tutor.produce` start a background job; poll `tutor.status` or block up to 55 s
-with `tutor.wait`; `tutor.abort` stops. While `tutor.explore` is stuck it sets `question` in
-`tutor.status` and waits for `tutor.answer` (`action`: `hint` with `text`, `did_it`, `skip` or
+with `tutor.wait`; `tutor.abort` stops. `tutor.explore` shows the model the window and takes one
+pointer move at a time (a point from 0 to 1000 inside that picture, a key, or text). A changed
+window title is kept; a dialog is followed until it closes. While it is stuck it sets `question`
+in `tutor.status` and waits for `tutor.answer` (`action`: `hint` with `text`, `did_it`, `skip` or
 `finish`). Input commands refuse to act unless the target window owns the foreground.
 
 ## Example (PowerShell)
