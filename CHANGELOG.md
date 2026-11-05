@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.13
+
+- AI tutorial director. Describe what to teach, and a local model plans the steps, rehearses them on the real app, then screenIt records a clean take with chapter cards, captions and zoom.
+
 ## 0.2.12
 
 - screenIt can update itself. It checks GitHub Releases at start and once a day, downloads a newer installer in the background, verifies its SHA-256, and offers Restart to update. Settings has an Updates tab, and About has Check for updates.

@@ -183,6 +183,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - xtask: msi writes release/SHA256SUMS.txt; new `cargo xtask release` (tag, push, GitHub release with CHANGELOG notes, upload msi/zip/sums via curl.exe + git credential).
 - Open: 0.2.11 has no updater, so the first update has to be installed by hand; the first real end-to-end upgrade test needs the next released version. Releases without SHA256SUMS.txt are notify-only.
 
+## 2026-11-05 - Release 0.2.13
+- Version bump for the AI tutorial director. Local MSI install for hands-on testing; no GitHub release.
+
 ## 2026-11-05 - AI tutorial director
 - New crate screenit-tutor (L4, pure): script model + selectors, human cursor paths, safety guard, deterministic player, LLM planner/repair prompts, rehearse, perform (per-chapter recording), produce plan (chapter cards, idle trim, zoom, callouts, captions, SRT). Traits UiTree/InputDriver/AppLauncher/LlmChat/Pace with fakes.
 - platform::automation: UIA snapshot (CacheRequest, ~25 ms), SendInput driver (kill hotkey Ctrl+Shift+Pause, 14 px mouse deviation = takeover), launcher. llm: LlmChat for LM Studio.
