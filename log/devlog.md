@@ -241,5 +241,11 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - While Plan (or Produce) runs, an always-on-top bar shows the timer, a progress count and Stop. screenIt comes to the front when the job finishes, or when the model asks a question.
 - Plan writes the script to a `.json` file (the script box, or `tutorial-<time>.json` in the output folder) and shows that path.
 
+## 2026-11-05 - AI tutorial button label stays inside, marked alpha
+- Tile labels shrink to the button instead of painting past it. The capture-bar tile carries an Alpha chip, and the tutorial screen opens with "Alpha release. Still being tested."
+
+## 2026-11-05 - AI tutorial button fits the capture bar
+- The hint under AI tutorial was wider than the tile (`Teach a task`). The compact window is sized again on the first frame, so a 125% display no longer keeps the point size as pixels and clips the last buttons.
+
 ## 2026-11-05 - Tutorial recordings join the library
 - Record files each chapter clip as a library video (tag `tutorial`, the app's window title). Produce files the finished movie the same way. Both show up on the next `tutor.status` or `tutor.wait`.

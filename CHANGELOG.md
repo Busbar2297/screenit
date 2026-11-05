@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.14
+
+- AI tutorial. Describe a task and screenIt plans it on the live app, asks when it is stuck, records the screen, and puts that video in the library.
+- Planning shows a progress bar and saves the plan as a JSON file. Producing the video reads the recording straight through, so a short clip is ready quickly.
+- The AI tutorial button keeps its label inside the tile, and the screen says this is an alpha release that is still being tested.
+
 ## 0.2.13
 
 - AI tutorial director. Describe what to teach, and a local model plans the steps, rehearses them on the real app, then screenIt records a clean take with chapter cards, captions and zoom.

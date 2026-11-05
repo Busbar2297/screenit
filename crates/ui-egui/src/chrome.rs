@@ -273,16 +273,9 @@ impl UiApp {
             {
                 self.enter_view(ctx, View::Library);
             }
-            if theme::tile(
-                ui,
-                Icon::Video,
-                &t("bar.tutor"),
-                &t("bar.tutor.sub"),
-                ts,
-                true,
-            )
-            .clicked()
-            {
+            let tutor = theme::tile(ui, Icon::Video, &t("bar.tutor"), "", ts, true);
+            theme::alpha_chip(ui.painter(), tutor.rect, &t("bar.tutor.sub"));
+            if tutor.clicked() {
                 self.enter_view(ctx, View::Tutorial);
             }
             if theme::tile(

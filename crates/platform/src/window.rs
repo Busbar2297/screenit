@@ -5,8 +5,9 @@ use std::os::windows::process::CommandExt;
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GWL_EXSTYLE, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
+    EnumWindows, GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
     SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
@@ -218,6 +219,70 @@ pub fn main_position() -> Option<(i32, i32)> {
     let mut r = RECT::default();
     // SAFETY: valid window handle owned by this process; `r` is a writable RECT.
     (unsafe { GetWindowRect(h, &mut r) } != 0).then_some((r.left, r.top))
+}
+
+/// If the client area is still the raw point size (a 125% display kept it as pixels), scale it.
+/// A window that is already scaled, or showing a different view, is left alone.
+pub fn nudge_if_unscaled(width_pt: f32, height_pt: f32) -> bool {
+    let Some(h) = main_window() else {
+        return false;
+    };
+    let mut client = RECT::default();
+    // SAFETY: valid window handle owned by this process; `client` is writable.
+    if unsafe { GetClientRect(h, &mut client) } == 0 {
+        return false;
+    }
+    let dw = (client.right as f32 - width_pt).abs();
+    let dh = (client.bottom as f32 - height_pt).abs();
+    if dw > 48.0 || dh > 48.0 {
+        return true;
+    }
+    set_client_size(width_pt, height_pt)
+}
+
+/// Set the main window's client area to this many logical points, scaled by the window's DPI.
+/// Returns false when the window does not exist yet.
+pub fn set_client_size(width_pt: f32, height_pt: f32) -> bool {
+    if !width_pt.is_finite() || !height_pt.is_finite() {
+        return false;
+    }
+    let Some(h) = main_window() else {
+        return false;
+    };
+    // SAFETY: valid window handle owned by this process.
+    let dpi = unsafe { GetDpiForWindow(h) };
+    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+    if !scale.is_finite() || !(0.5..=4.0).contains(&scale) {
+        return false;
+    }
+    let width = (width_pt * scale).round() as i32;
+    let height = (height_pt * scale).round() as i32;
+    let width = width.clamp(1, 8192);
+    let height = height.clamp(1, 8192);
+    let mut outer = RECT::default();
+    let mut client = RECT::default();
+    // SAFETY: valid window handle owned by this process; both RECTs are writable.
+    let ok = unsafe { GetWindowRect(h, &mut outer) != 0 && GetClientRect(h, &mut client) != 0 };
+    if !ok {
+        return false;
+    }
+    if client.right == width && client.bottom == height {
+        return true;
+    }
+    let extra_w = (outer.right - outer.left).saturating_sub(client.right);
+    let extra_h = (outer.bottom - outer.top).saturating_sub(client.bottom);
+    // SAFETY: valid window handle owned by this process. Size includes the frame around the client.
+    unsafe {
+        SetWindowPos(
+            h,
+            std::ptr::null_mut(),
+            0,
+            0,
+            width.saturating_add(extra_w),
+            height.saturating_add(extra_h),
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        ) != 0
+    }
 }
 
 /// Move the main window's top-left corner to (x, y) physical pixels without resizing it.

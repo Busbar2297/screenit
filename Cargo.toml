@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/screenit-cli", "xtask"]
 
 [workspace.package]
-version = "0.2.13"
+version = "0.2.14"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.90"
@@ -86,7 +86,7 @@ codegen-units = 1
 [workspace.metadata.sonar]
 project-key = "screenit"
 project-name = "screenIt"
-project-version = "0.2.13"
+project-version = "0.2.14"
 host-url = "http://localhost:9000"
 exclusions = ["target/**"]
 

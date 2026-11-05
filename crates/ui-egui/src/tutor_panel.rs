@@ -292,6 +292,9 @@ impl UiApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.label(egui::RichText::new(t("tutor.title")).size(24.0).strong());
+                ui.add_space(6.0);
+                theme::notice(ui, &t("tutor.alpha"));
+                ui.add_space(6.0);
                 ui.label(egui::RichText::new(t("tutor.hint")).size(13.0).color(MUTED));
                 let model = self.session.settings.ocr.llm_model.trim().to_string();
                 let model_line = if model.is_empty() {

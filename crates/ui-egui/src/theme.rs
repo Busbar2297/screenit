@@ -303,22 +303,96 @@ pub fn tile(
             Vec2::splat(24.0),
         );
         icons::paint(p, icon, ic, if hovered { ACCENT2 } else { fg });
-        p.text(
+        let inner = rect.shrink(6.0);
+        let text = ui.painter().with_clip_rect(inner);
+        fitted_line(
+            &text,
             Pos2::new(rect.center().x, rect.min.y + size.y * 0.66),
-            egui::Align2::CENTER_CENTER,
             label,
-            FontId::proportional(13.0),
+            inner.width(),
+            13.0,
             fg,
         );
-        p.text(
+        fitted_line(
+            &text,
             Pos2::new(rect.center().x, rect.min.y + size.y * 0.84),
-            egui::Align2::CENTER_CENTER,
             hint,
-            FontId::proportional(10.5),
+            inner.width(),
+            10.5,
             MUTED,
         );
     }
     resp
+}
+
+/// One centered line that shrinks until it fits `max_w`, so a tile label stays inside the button.
+fn fitted_line(
+    p: &egui::Painter,
+    center: Pos2,
+    text: &str,
+    max_w: f32,
+    mut size: f32,
+    color: Color32,
+) {
+    if text.is_empty() || !max_w.is_finite() || max_w < 4.0 {
+        return;
+    }
+    let mut galley = p.layout_no_wrap(text.to_owned(), FontId::proportional(size), color);
+    while galley.size().x > max_w && size > 8.0 {
+        size = (size - 0.5).max(8.0);
+        galley = p.layout_no_wrap(text.to_owned(), FontId::proportional(size), color);
+    }
+    p.galley(
+        Pos2::new(
+            center.x - galley.size().x * 0.5,
+            center.y - galley.size().y * 0.5,
+        ),
+        galley,
+        color,
+    );
+}
+
+/// Amber "Alpha" chip drawn inside a launcher tile.
+pub fn alpha_chip(p: &egui::Painter, tile: Rect, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let fg = Color32::from_rgb(42, 28, 6);
+    let bg = Color32::from_rgb(251, 191, 36);
+    let max_w = (tile.width() - 12.0).max(8.0);
+    let mut size = 10.0;
+    let mut galley = p.layout_no_wrap(text.to_owned(), FontId::proportional(size), fg);
+    while galley.size().x + 12.0 > max_w && size > 8.0 {
+        size = (size - 0.5).max(8.0);
+        galley = p.layout_no_wrap(text.to_owned(), FontId::proportional(size), fg);
+    }
+    let chip = Vec2::new((galley.size().x + 12.0).min(max_w), galley.size().y + 4.0);
+    let center = Pos2::new(tile.center().x, tile.max.y - 16.0);
+    let rect = Rect::from_center_size(center, chip).intersect(tile.shrink(4.0));
+    if rect.width() < 4.0 || rect.height() < 4.0 {
+        return;
+    }
+    p.rect_filled(rect, 6.0, bg);
+    let clipped = p.with_clip_rect(rect.shrink(2.0));
+    clipped.galley(
+        Pos2::new(
+            rect.center().x - galley.size().x * 0.5,
+            rect.center().y - galley.size().y * 0.5,
+        ),
+        galley,
+        fg,
+    );
+}
+
+/// Full-width note, used to mark a screen that is still being tested.
+pub fn notice(ui: &mut Ui, text: &str) {
+    let width = ui.available_width().max(8.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 36.0), Sense::hover());
+    let p = ui.painter();
+    let bg = Color32::from_rgb(251, 191, 36);
+    let fg = Color32::from_rgb(42, 28, 6);
+    p.rect_filled(rect, 8.0, bg);
+    fitted_line(p, rect.center(), text, rect.width() - 20.0, 13.5, fg);
 }
 
 /// Small rounded "keycap" label, e.g. for showing a shortcut.

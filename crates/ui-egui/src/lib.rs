@@ -223,6 +223,11 @@ pub struct UiApp {
     chrome_sent: Option<bool>,
     /// Scale of the monitor the window was last laid out for.
     last_ppp: f32,
+    /// Frames spent putting a fixed view at the DPI size. The first request is often
+    /// overwritten by the window's own pending resize, so it is repeated briefly.
+    size_fixes: u8,
+    /// A late native resize can land after those frames. One delayed pass corrects it.
+    nudge_started: bool,
     /// Update the user chose to hide with Later (until the app restarts).
     pub(crate) update_hidden: Option<String>,
 }
@@ -285,6 +290,8 @@ impl UiApp {
             editor_chrome: false,
             chrome_sent: None,
             last_ppp: 0.0,
+            size_fixes: 0,
+            nudge_started: false,
             update_hidden: None,
         }
     }
@@ -329,7 +336,7 @@ impl UiApp {
         self.apply_view_size(ctx);
     }
 
-    fn apply_view_size(&self, ctx: &egui::Context) {
+    fn apply_view_size(&self, _ctx: &egui::Context) -> bool {
         let [w, h] = match self.view {
             View::Compact => COMPACT_SIZE,
             View::Settings => [960.0, 660.0],
@@ -337,18 +344,40 @@ impl UiApp {
             View::Tutorial => [960.0, 760.0],
             View::Editor | View::Library => EDITOR_SIZE,
         };
-        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+        // Sized from the window DPI. On a 125% display the point size was applied as
+        // raw pixels and the last capture-bar buttons were clipped.
+        screenit_platform::window::nudge_if_unscaled(w, h)
     }
 
-    /// Dragging the window to a monitor with another scale changes points-per-pixel; the fixed
-    /// size views then came out too large. Re-apply the logical size once when that happens.
+    /// The window is created before the monitor scale is known, so a 125% display kept the
+    /// point size as pixels and the last capture-bar buttons were cut off. Re-apply the logical
+    /// size on the first frame, and again when the window moves to a monitor with another scale.
     fn follow_monitor_scale(&mut self, ctx: &egui::Context) {
         let ppp = ctx.pixels_per_point();
-        if self.last_ppp > 0.0
-            && (ppp - self.last_ppp).abs() > 0.01
-            && !matches!(self.view, View::Editor | View::Library)
-        {
-            self.apply_view_size(ctx);
+        if ppp <= 0.0 {
+            return;
+        }
+        if (ppp - self.last_ppp).abs() > 0.01 {
+            self.size_fixes = 0;
+        }
+        // The native size request from startup can land after the first frames and
+        // clip the bar again, so keep correcting for a short while.
+        if self.size_fixes < 180 && !matches!(self.view, View::Editor | View::Library) {
+            ctx.request_repaint();
+            if self.apply_view_size(ctx) {
+                self.size_fixes = self.size_fixes.saturating_add(1);
+            }
+        }
+        if !self.nudge_started {
+            self.nudge_started = true;
+            let [w, h] = COMPACT_SIZE;
+            std::thread::spawn(move || {
+                // The startup size request can arrive after the first frames and clip the bar.
+                for wait_ms in [1200_u64, 2000] {
+                    std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+                    let _ = screenit_platform::window::nudge_if_unscaled(w, h);
+                }
+            });
         }
         self.last_ppp = ppp;
     }
