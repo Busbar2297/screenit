@@ -385,8 +385,9 @@ impl UiApp {
                 32.0,
             )
             .clicked()
+                && self.view != View::Tutorial
             {
-                self.view = View::Tutorial;
+                self.enter_view(ctx, View::Tutorial);
             }
             if theme::icon_button(
                 ui,

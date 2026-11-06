@@ -274,3 +274,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Commands (background jobs, result beside the video): `video.chapters.suggest`, `video.describe` (both write `clip.chapters.json`), `video.chapters.get/set` (hand edits, YouTube chapter list), `video.captions.polish` (`cleanup` keeps a batch unchanged when the model answers badly; `frames` captions keyframes of a silent recording and will not overwrite subtitles without `replace`). `video.polish` gained `llm_clicks` (the model keeps only the zooms that matter; a bad answer keeps all).
 - Speech row in the video bar: Transcribe, Cut silences, Burn subtitles, Chapters, Describe, Polish text, Denoise. Parity rows vid.chapters, vid.captions.llm, vid.zoomfilter.
 - Still open: the click filter sees only where a click landed (events carry no control names); no real LLM/STT server was used here, so replies are tested with canned model output; UI strings are plain English; the video bar was not screenshotted this session.
+
+## 2026-11-06 - Tutorial screen can be maximized
+- Opening AI tutorial turned the maximize button off and forced a normal window, so the form was cut off on a laptop. The tutorial view now resizes and maximizes like the editor, opens fitted to the work area, and wraps the Plan / Rehearse / Record / Produce row.

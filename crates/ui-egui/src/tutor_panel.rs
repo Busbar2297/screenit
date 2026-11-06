@@ -314,7 +314,9 @@ impl UiApp {
                     );
                 }
                 ui.add_space(8.0);
-                crate::h_row(ui, |ui| {
+                // Wrap so Plan / Rehearse / Record / Produce stay reachable in a short window.
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
                     let goal_ok = !self.tutor_ui.goal.trim().is_empty();
                     let open = self.tutor_ui.launch.trim().is_empty()
                         && self.tutor_ui.window.trim().is_empty();

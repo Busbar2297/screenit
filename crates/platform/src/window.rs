@@ -4,12 +4,15 @@
 use std::os::windows::process::CommandExt;
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+use windows_sys::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
+    GetWindowThreadProcessId, IsIconic, IsZoomed, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
     SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
     WS_EX_TOOLWINDOW,
 };
@@ -219,6 +222,52 @@ pub fn main_position() -> Option<(i32, i32)> {
     let mut r = RECT::default();
     // SAFETY: valid window handle owned by this process; `r` is a writable RECT.
     (unsafe { GetWindowRect(h, &mut r) } != 0).then_some((r.left, r.top))
+}
+
+/// The window is maximized.
+pub fn is_maximized() -> bool {
+    // SAFETY: valid window handle owned by this process.
+    main_window().is_some_and(|h| unsafe { IsZoomed(h) } != 0)
+}
+
+/// Largest client size, in logical points, that fits the monitor's work area (screen minus the
+/// taskbar), leaving room for the title bar and borders.
+pub fn max_client_pt() -> Option<(f32, f32)> {
+    let h = main_window()?;
+    // SAFETY: valid window handle owned by this process. Nearest monitor when the window is
+    // off-screen, so a tray-parked window still gets a size.
+    let monitor = unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() {
+        return None;
+    }
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+    // SAFETY: `info.cbSize` is set; `monitor` came from MonitorFromWindow.
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+    // SAFETY: valid window handle owned by this process.
+    let dpi = unsafe { GetDpiForWindow(h) };
+    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+    if !scale.is_finite() || !(0.5..=4.0).contains(&scale) {
+        return None;
+    }
+    let w = (info.rcWork.right - info.rcWork.left) as f32 / scale - 24.0;
+    let hgt = (info.rcWork.bottom - info.rcWork.top) as f32 / scale - 56.0;
+    (w.is_finite() && hgt.is_finite() && w > 200.0 && hgt > 120.0).then_some((w, hgt))
+}
+
+/// `want` shrunk so a fixed window is not taller than the screen it opened on.
+pub fn fit_points(want_w: f32, want_h: f32) -> (f32, f32) {
+    let Some((max_w, max_h)) = max_client_pt() else {
+        return (want_w, want_h);
+    };
+    (
+        want_w.min(max_w).max(320.0).min(max_w),
+        want_h.min(max_h).max(160.0).min(max_h),
+    )
 }
 
 /// If the client area is still the raw point size (a 125% display kept it as pixels), scale it.

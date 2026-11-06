@@ -120,6 +120,13 @@ pub(crate) enum View {
 
 const COMPACT_SIZE: [f32; 2] = [1090.0, 252.0];
 const EDITOR_SIZE: [f32; 2] = [1280.0, 820.0];
+const TUTORIAL_SIZE: [f32; 2] = [960.0, 760.0];
+
+/// Editor, library and the tutorial screen can be resized and maximized. The capture bar,
+/// settings and about stay a fixed size (Windows 11 draws a dimmed maximize square otherwise).
+fn view_can_grow(view: View) -> bool {
+    matches!(view, View::Editor | View::Library | View::Tutorial)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pending {
@@ -348,9 +355,15 @@ impl UiApp {
             View::Compact => COMPACT_SIZE,
             View::Settings => [960.0, 660.0],
             View::About => [720.0, 560.0],
-            View::Tutorial => [960.0, 760.0],
+            View::Tutorial => TUTORIAL_SIZE,
             View::Editor | View::Library => EDITOR_SIZE,
         };
+        // The tutorial form is taller than many laptop screens at 150% scaling. Open it
+        // already fitted, and leave a maximized window alone.
+        if self.view == View::Tutorial && !screenit_platform::window::is_maximized() {
+            let (w, h) = screenit_platform::window::fit_points(w, h);
+            let _ = screenit_platform::window::set_client_size(w, h);
+        }
         // Sized from the window DPI. On a 125% display the point size was applied as
         // raw pixels and the last capture-bar buttons were clipped.
         screenit_platform::window::nudge_if_unscaled(w, h)
@@ -369,7 +382,7 @@ impl UiApp {
         }
         // The native size request from startup can land after the first frames and
         // clip the bar again, so keep correcting for a short while.
-        if self.size_fixes < 180 && !matches!(self.view, View::Editor | View::Library) {
+        if self.size_fixes < 180 && !view_can_grow(self.view) {
             ctx.request_repaint();
             if self.apply_view_size(ctx) {
                 self.size_fixes = self.size_fixes.saturating_add(1);
@@ -397,10 +410,10 @@ impl UiApp {
         self.enter_view(ctx, View::About);
     }
 
-    /// Maximize is live in the editor and the library. Windows 11 draws a dimmed square on a
-    /// fixed window, so those two views are resizable and the capture bar stays fixed.
+    /// Maximize is live in the editor, the library and the tutorial screen. Windows 11 draws a
+    /// dimmed square on a fixed window, so those views are resizable and the capture bar stays fixed.
     fn sync_maximize_button(&mut self, ctx: &egui::Context) {
-        let grow = matches!(self.view, View::Editor | View::Library);
+        let grow = view_can_grow(self.view);
         if self.editor_chrome && !grow {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         }
@@ -1011,6 +1024,19 @@ pub(crate) fn column_layout() -> egui::Layout {
 pub(crate) fn user_locales_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("LOCALAPPDATA")
         .map(|p| std::path::PathBuf::from(p).join("screenIt").join("locales"))
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+
+    #[test]
+    fn the_tutorial_screen_can_be_maximized() {
+        assert!(view_can_grow(View::Tutorial));
+        assert!(view_can_grow(View::Editor) && view_can_grow(View::Library));
+        assert!(!view_can_grow(View::Compact));
+        assert!(!view_can_grow(View::Settings) && !view_can_grow(View::About));
+    }
 }
 
 #[cfg(test)]
