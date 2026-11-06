@@ -24,6 +24,7 @@ fn start(s: &mut Session, p: &Value) -> CmdResult {
             "system_audio",
             "cursor_highlight",
             "click_ripples",
+            "event_log",
             "output",
             "countdown_ms",
             "webcam",
@@ -70,6 +71,7 @@ fn start(s: &mut Session, p: &Value) -> CmdResult {
         system_audio: a.bool("system_audio", false)?,
         cursor_highlight: a.bool("cursor_highlight", false)?,
         click_ripples: a.bool("click_ripples", false)?,
+        event_log: a.bool("event_log", true)?,
         output: a.str("output")?.into(),
     };
     cfg.validate().map_err(CommandError::failed)?;
@@ -349,7 +351,7 @@ pub fn specs() -> Vec<CommandSpec> {
         c(
             "record.start",
             "Start Recording",
-            r#"{"x","y","w","h","output":str.mp4,"fps"?:int,"codec"?:h264|h265,"size"?:native|1080p|1440p|2160p,"mic"?:str,"system_audio"?:bool,"cursor_highlight"?:bool,"click_ripples"?:bool,"countdown_ms"?:int,"webcam"?:bool,"pip_shape"?:rectangle|rounded|circle,"pip_size"?:5..100,"pip_corner"?:top_left|top_right|bottom_left|bottom_right,"pip_margin"?:int}"#,
+            r#"{"x","y","w","h","output":str.mp4,"fps"?:int,"codec"?:h264|h265,"size"?:native|1080p|1440p|2160p,"mic"?:str,"system_audio"?:bool,"cursor_highlight"?:bool,"click_ripples"?:bool,"event_log"?:bool(default true; writes <output>.events.json),"countdown_ms"?:int,"webcam"?:bool,"pip_shape"?:rectangle|rounded|circle,"pip_size"?:5..100,"pip_corner"?:top_left|top_right|bottom_left|bottom_right,"pip_margin"?:int}"#,
             start,
         ),
         c(

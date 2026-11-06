@@ -221,6 +221,56 @@ fn open_audio(path: &Path) -> Result<Option<IMFSourceReader>, RecordError> {
     }
 }
 
+/// Longest track decoded whole (30 minutes of 48 kHz stereo).
+const MAX_DECODE_SAMPLES: usize = 48_000 * 2 * 60 * 30;
+
+/// Decode the whole audio track to interleaved 48 kHz stereo samples. No track gives an empty vec.
+pub(crate) fn decode_all(path: &Path) -> Result<Vec<i16>, RecordError> {
+    use windows::Win32::Media::MediaFoundation::MF_SOURCE_READER_FLAG;
+    crate::mf::init_mf()?;
+    let Some(reader) = open_audio(path)? else {
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<i16> = Vec::new();
+    while out.len() < MAX_DECODE_SAMPLES {
+        // SAFETY: ReadSample and the buffer lock use the reader owned here; the lock is
+        // released before the sample is dropped.
+        unsafe {
+            let (mut flags, mut ts) = (0u32, 0i64);
+            let mut sample = None;
+            reader
+                .ReadSample(
+                    MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32,
+                    0,
+                    None,
+                    Some(&mut flags),
+                    Some(&mut ts),
+                    Some(&mut sample),
+                )
+                .map_err(err)?;
+            if let Some(sample) = sample {
+                let buf = sample.ConvertToContiguousBuffer().map_err(err)?;
+                let (mut ptr, mut len) = (std::ptr::null_mut(), 0u32);
+                buf.Lock(&mut ptr, None, Some(&mut len)).map_err(err)?;
+                if !ptr.is_null() && len > 0 {
+                    let n = (len as usize) / BYTES_PER_FRAME * BYTES_PER_FRAME;
+                    let bytes = std::slice::from_raw_parts(ptr, n);
+                    out.extend(
+                        bytes
+                            .chunks_exact(2)
+                            .map(|b| i16::from_le_bytes([b[0], b[1]])),
+                    );
+                }
+                buf.Unlock().map_err(err)?;
+            }
+            if flags & (MF_SOURCE_READER_FLAG(2).0 as u32) != 0 {
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn seek(reader: &IMFSourceReader, ms: u64) -> Result<(), RecordError> {
     let hns = (ms.min(i64::MAX as u64 / 10_000) as i64).saturating_mul(10_000);
     // SAFETY: GUID_NULL selects 100-nanosecond presentation time; the PROPVARIANT is copied.

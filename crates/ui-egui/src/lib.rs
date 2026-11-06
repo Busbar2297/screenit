@@ -7,6 +7,7 @@ mod fonts;
 mod icons;
 mod library_panel;
 mod overlay;
+mod polish_panel;
 mod recording;
 mod scrolling;
 mod selection;
@@ -191,6 +192,7 @@ pub struct UiApp {
     /// Fit the document to the canvas on the next frame (new capture, Ctrl+0).
     pub(crate) fit: bool,
     pub(crate) rec_opts: recording::RecOptions,
+    pub(crate) polish: polish_panel::PolishUi,
     recording: Option<recording::RecUi>,
     /// A scrolling capture being taken, one step per frame.
     scroll: Option<scrolling::ScrollRun>,
@@ -264,6 +266,7 @@ impl UiApp {
             lib_query: String::new(),
             thumbs: HashMap::new(),
             video: None,
+            polish: Default::default(),
             saved_pos: None,
             home: None,
             icon_tries: 0,
@@ -896,6 +899,11 @@ impl eframe::App for UiApp {
                     egui::Panel::bottom("update")
                         .frame(bar(theme::SURFACE2))
                         .show(ui, |ui| self.update_strip(ui));
+                }
+                if self.polish_wanted() {
+                    egui::Panel::bottom("polish")
+                        .frame(bar(theme::SURFACE2))
+                        .show(ui, |ui| self.polish_bar(ui, &ctx));
                 }
                 if self.video.is_some() {
                     egui::Panel::bottom("transport")

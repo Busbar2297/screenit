@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         system_audio: false,
         cursor_highlight: false,
         click_ripples: false,
+        event_log: false,
         output: out.into(),
     })?;
     std::thread::sleep(Duration::from_secs(4));

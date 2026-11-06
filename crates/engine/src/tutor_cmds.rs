@@ -46,12 +46,14 @@ struct Inner {
 }
 
 /// A finished tutorial video. Filed by `tutor.status` / `tutor.wait`, which run on the session.
-struct Capture {
-    path: PathBuf,
-    title: String,
-    app: String,
-    width: u32,
-    height: u32,
+pub(crate) struct Capture {
+    pub path: PathBuf,
+    pub title: String,
+    pub app: String,
+    pub width: u32,
+    pub height: u32,
+    /// Library tag.
+    pub tag: &'static str,
 }
 
 /// State shared between commands and the background job thread.
@@ -87,7 +89,7 @@ impl TutorShared {
         g.events.push(v);
     }
 
-    fn set_progress(&self, done: u32, total: u32) {
+    pub(crate) fn set_progress(&self, done: u32, total: u32) {
         let mut g = self.lock();
         g.progress_done = done;
         g.progress_total = total;
@@ -272,7 +274,7 @@ fn app_launch(s: &mut Session, p: &Value) -> CmdResult {
 
 // ------------------------------------------------------------------ jobs
 
-fn spawn_job(
+pub(crate) fn spawn_job(
     s: &Session,
     phase: &'static str,
     f: impl FnOnce(&Arc<TutorShared>) -> TutorResult<Value> + Send + 'static,
@@ -588,6 +590,7 @@ impl ChapterRecorder for EngineRecorder {
             system_audio: false,
             cursor_highlight: true,
             click_ripples: false,
+            event_log: false,
             output: self
                 .dir
                 .join(format!("{}_ch{:02}.mp4", self.name, chapter + 1)),
@@ -808,6 +811,7 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
                 app: String::new(),
                 width: res.width,
                 height: res.height,
+                tag: "tutorial",
             },
         );
         Ok(json!({
@@ -828,7 +832,7 @@ fn video_title(show: &str, path: &std::path::Path) -> String {
         .unwrap_or_else(|| "tutorial".into())
 }
 
-fn queue_capture(sh: &TutorShared, c: Capture) {
+pub(crate) fn queue_capture(sh: &TutorShared, c: Capture) {
     if c.path.as_os_str().is_empty() {
         return;
     }
@@ -854,6 +858,7 @@ fn queue_captures(sh: &TutorShared, out: &Performance, app: &str) {
                 app: app.clone(),
                 width: out.region.w,
                 height: out.region.h,
+                tag: "tutorial",
             },
         );
     }
@@ -877,7 +882,7 @@ fn file_captures(s: &mut Session) {
             created,
             width: c.width,
             height: c.height,
-            tags: vec!["tutorial".into()],
+            tags: vec![c.tag.into()],
             body: String::new(),
         });
         if added.is_err() {

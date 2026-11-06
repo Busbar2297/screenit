@@ -674,6 +674,30 @@ group = "Video editing"
 title = "Silent copy"
 tier = 2
 status = "missing"
+[[row]]
+id = "vid.events"
+group = "Video editing"
+title = "Input event log kept beside a recording (pointer, clicks, shortcuts; no typed text)"
+tier = 2
+status = "done"
+commands = ["record.start", "video.events.get"]
+tests = ["events::tests::typing_keeps_no_characters_but_shortcuts_keep_names", "polish_cmds::tests::events_plan_and_render_through_the_commands"]
+[[row]]
+id = "vid.polish"
+group = "Video editing"
+title = "Auto-polish: zoom on clicks, idle cut, typing speed-up, shortcut badges, cursor style"
+tier = 2
+status = "done"
+commands = ["video.polish", "video.polish.plan", "video.polish.opts"]
+tests = ["polish::tests::idle_is_cut_and_typing_is_sped_up", "polish::tests::clicks_zoom_and_cluster", "polish_cmds::tests::events_plan_and_render_through_the_commands"]
+[[row]]
+id = "vid.reframe"
+group = "Video editing"
+title = "Reframe to square / vertical / wide with padding and rounded corners"
+tier = 2
+status = "done"
+commands = ["video.polish"]
+tests = ["polish::tests::vertical_reframing_follows_the_pointer_inside_the_frame", "polish_render::tests::vertical_with_padding_has_rounded_background_corners"]
 
 # ---- Library ----
 [[row]]

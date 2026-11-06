@@ -533,6 +533,9 @@ fn run_capture(
     );
     let mut ripples: Vec<(Point, u64)> = Vec::new();
     let mut was_down = false;
+    let mut sampler = cfg
+        .event_log
+        .then(|| screenit_record::events::EventSampler::new(region));
     if let Some(a) = &mut audio {
         a.collect();
         a.mixer.discard(); // packets captured while the encoder was being set up
@@ -583,6 +586,14 @@ fn run_capture(
         }
         let t_ms = (now - start - paused_total).as_millis() as u64;
         let cursor = screen.cursor();
+        if let Some(sm) = &mut sampler {
+            let sample = screenit_record::events::InputSample {
+                pos: cursor.map(|c| c.pos),
+                buttons: crate::input::button_mask(),
+                keys: crate::input::keys_down(),
+            };
+            sm.feed(t_ms, &sample, &|p| screen.object_at(p).map(|w| w.rect));
+        }
         if cfg.click_ripples {
             let down = crate::input::left_button_down();
             if down && !was_down {
@@ -631,6 +642,10 @@ fn run_capture(
     }
     // SAFETY: finalise writes the moov atom; required for a playable MP4.
     unsafe { writer.Finalize().map_err(err)? };
+    if let Some(sm) = sampler {
+        // The sidecar is a bonus: a failed write must not lose the recording.
+        let _ = sm.finish(elapsed.as_millis() as u64).save(&cfg.output);
+    }
     Ok(RecordingResult {
         path: cfg.output.clone(),
         duration_ms: elapsed.as_millis() as u64,
@@ -790,6 +805,10 @@ impl VideoReader for MfVideoReader {
             height,
             has_audio,
         })
+    }
+
+    fn audio_pcm(&self, path: &Path) -> Result<Vec<i16>, RecordError> {
+        crate::playback::decode_all(path)
     }
 
     fn frame_at(&self, path: &Path, ms: u64) -> Result<Raster, RecordError> {
@@ -971,6 +990,32 @@ fn copy_bgra(
 
 pub struct MfVideoWriter;
 
+/// Write `piece` samples of `audio` from `at` as one AAC input sample; returns the new offset.
+fn write_audio_piece(
+    writer: &IMFSinkWriter,
+    stream: u32,
+    audio: &[i16],
+    at: usize,
+    piece: usize,
+) -> Result<usize, RecordError> {
+    let end = (at + piece).min(audio.len());
+    let Some(pcm) = audio.get(at..end) else {
+        return Ok(audio.len());
+    };
+    let ch = usize::from(CHANNELS);
+    let ts = (at / ch) as u64 * 10_000_000 / u64::from(RATE);
+    let dur = (pcm.len() / ch) as u64 * 10_000_000 / u64::from(RATE);
+    let chunk = AudioChunk {
+        ts_100ns: ts as i64,
+        dur_100ns: dur as i64,
+        pcm: pcm.to_vec(),
+    };
+    let sample = make_audio_sample(&chunk)?;
+    // SAFETY: the audio stream was added before BeginWriting.
+    unsafe { writer.WriteSample(stream, &sample).map_err(err)? };
+    Ok(end)
+}
+
 impl VideoWriter for MfVideoWriter {
     fn write(
         &self,
@@ -979,6 +1024,18 @@ impl VideoWriter for MfVideoWriter {
         height: u32,
         fps: u32,
         frames: &mut dyn Iterator<Item = Result<Raster, RecordError>>,
+    ) -> Result<RecordingResult, RecordError> {
+        self.write_with_audio(out, width, height, fps, frames, &[])
+    }
+
+    fn write_with_audio(
+        &self,
+        out: &Path,
+        width: u32,
+        height: u32,
+        fps: u32,
+        frames: &mut dyn Iterator<Item = Result<Raster, RecordError>>,
+        audio: &[i16],
     ) -> Result<RecordingResult, RecordError> {
         init_mf()?;
         let cfg = RecordConfig {
@@ -991,11 +1048,16 @@ impl VideoWriter for MfVideoWriter {
             system_audio: false,
             cursor_highlight: false,
             click_ripples: false,
+            event_log: false,
             output: out.to_path_buf(),
         };
-        let (writer, _) = open_writer(&cfg, width, height, false)?;
+        let (writer, audio_stream) = open_writer(&cfg, width, height, !audio.is_empty())?;
         let dur = (10_000_000.0 / f64::from(fps)) as i64;
         let mut n = 0u64;
+        // Audio is written in 200 ms pieces a little ahead of the picture so the muxer
+        // interleaves the two streams.
+        let piece = (RATE as usize / 5) * usize::from(CHANNELS);
+        let mut audio_at = 0usize;
         for f in frames {
             let f = f?;
             if f.width() != width || f.height() != height {
@@ -1005,6 +1067,19 @@ impl VideoWriter for MfVideoWriter {
             // SAFETY: stream 0 exists for the writer created above.
             unsafe { writer.WriteSample(0, &sample).map_err(err)? };
             n += 1;
+            if let Some(stream) = audio_stream {
+                let video_ms = n * 1000 / u64::from(fps);
+                let due =
+                    (video_ms as usize + 200) * (RATE as usize / 1000) * usize::from(CHANNELS);
+                while audio_at < audio.len() && audio_at < due {
+                    audio_at = write_audio_piece(&writer, stream, audio, audio_at, piece)?;
+                }
+            }
+        }
+        if let Some(stream) = audio_stream {
+            while audio_at < audio.len() {
+                audio_at = write_audio_piece(&writer, stream, audio, audio_at, piece)?;
+            }
         }
         // SAFETY: finalise so the MP4 is playable.
         unsafe { writer.Finalize().map_err(err)? };
@@ -1014,7 +1089,7 @@ impl VideoWriter for MfVideoWriter {
             frames: n,
             width,
             height,
-            has_audio: false,
+            has_audio: audio_stream.is_some(),
         })
     }
 }
@@ -1167,6 +1242,7 @@ mod tests {
                 system_audio: false,
                 cursor_highlight: false,
                 click_ripples: false,
+                event_log: false,
                 output: out.clone(),
             };
             rec.start(&cfg).expect("start");

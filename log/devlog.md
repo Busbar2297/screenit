@@ -252,3 +252,11 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## 2026-11-05 - Tutorial recordings join the library
 - Record files each chapter clip as a library video (tag `tutorial`, the app's window title). Produce files the finished movie the same way. Both show up on the next `tutor.status` or `tutor.wait`.
+
+## 2026-11-06 - Auto-polish for any recording (FocuSee-style, phase 1)
+- record/events.rs: `EventLog` + `EventSampler` (clicks with the control rect under the pointer, moves, shortcuts, typing times; typed characters are never stored). The capture loop in mf.rs polls them and writes `<clip>.events.json` (`record.start` `event_log`, default on; chip "Auto-polish" on the record bar). Mouse wheel is not logged (polling cannot see it).
+- record/polish.rs: `PolishPlan` from an event log: idle cut, typing speed-up, zoom shots on click clusters, click rings, shortcut badges, smoothed/fading pointer, reframing to square/vertical/wide that follows the pointer. Audio is cut and resampled to the same timeline (`retime_audio`).
+- engine/polish_render.rs: renders the plan (pointer glow/ring, badges, padding, shadow, rounded corners). `VideoReader::audio_pcm` and `VideoWriter::write_with_audio` (MF AAC) added so polished videos keep their sound.
+- Commands: `video.events.get`, `video.polish.opts`, `video.polish.plan`, `video.polish` (background job; progress through `tutor.status` / `tutor.wait` / `tutor.abort`). Polish bar under a loaded video. Parity rows vid.events, vid.polish, vid.reframe. Budget `polish_1080p_frame_ms`.
+- The tutor's own produce plan is unchanged (it still uses `tutor::produce::Plan`); the two share only the renderer helpers.
+- Still open: wheel events, 3D tilt / motion blur, cursor styles that replace the captured pointer, polish a clip that has no event log.

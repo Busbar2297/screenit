@@ -34,6 +34,8 @@ pub(crate) struct RecOptions {
     pub system: bool,
     pub webcam: bool,
     pub cursor: bool,
+    /// Keep an event log beside the video for auto-polish.
+    pub polish: bool,
 }
 
 impl Default for RecOptions {
@@ -43,6 +45,7 @@ impl Default for RecOptions {
             system: true,
             webcam: false,
             cursor: true,
+            polish: true,
         }
     }
 }
@@ -104,6 +107,7 @@ impl UiApp {
             chip(ui, Icon::Speaker, "System audio", &mut o.system);
             chip(ui, Icon::Camera, "Webcam", &mut o.webcam);
             chip(ui, Icon::Cursor, "Cursor effects", &mut o.cursor);
+            chip(ui, Icon::Video, "Auto-polish", &mut o.polish);
         });
         if before != (self.rec_opts.mic, self.rec_opts.system) {
             let mut s = self.session.settings.clone();
@@ -160,6 +164,7 @@ impl UiApp {
             "system_audio": r.opts.system,
             "cursor_highlight": r.opts.cursor,
             "click_ripples": r.opts.cursor,
+            "event_log": r.opts.polish,
             "webcam": r.opts.webcam,
         });
         if r.opts.mic {

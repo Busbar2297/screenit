@@ -222,6 +222,27 @@ fn records_an_mp4_that_decodes_back_to_the_fixture() {
         diff < 12.0,
         "decoded frame too different from fixture: {diff}"
     );
+    // The recording keeps an event log, and auto-polish renders it through the real encoder.
+    let ev = s
+        .dispatch("video.events.get", &json!({"path": out.to_str().unwrap()}))
+        .expect("event log written beside the recording");
+    assert!(ev["count"].as_u64().unwrap() >= 1, "{ev}");
+    let polished = std::env::temp_dir().join("screenit-e2e-rec-polished.mp4");
+    let _ = std::fs::remove_file(&polished);
+    s.dispatch(
+        "video.polish",
+        &json!({"path": out.to_str().unwrap(), "output": polished.to_str().unwrap(),
+                "fps": 15, "aspect": "square", "padding_pct": 6, "corner_pct": 10}),
+    )
+    .expect("polish");
+    let st = s
+        .dispatch("tutor.wait", &json!({"timeout_ms": 50000}))
+        .expect("wait");
+    assert!(st["error"].is_null(), "{st}");
+    let pinfo = s
+        .dispatch("video.probe", &json!({"path": polished.to_str().unwrap()}))
+        .expect("probe polished");
+    assert_eq!(pinfo["width"], pinfo["height"], "square output: {pinfo}");
 }
 
 #[test]

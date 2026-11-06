@@ -25,6 +25,8 @@ mod ml_cmds;
 mod record_cmds;
 mod secrets;
 pub use secrets::{Found, ScanResult, SecretScan};
+mod polish_cmds;
+mod polish_render;
 pub mod settings;
 mod system_cmds;
 mod tutor_cmds;

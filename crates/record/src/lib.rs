@@ -10,6 +10,8 @@
 )]
 
 pub mod audio;
+pub mod events;
+pub mod polish;
 
 use screenit_geom::{Point, PointF, Rect, RectF};
 use screenit_raster::Raster;
@@ -240,6 +242,9 @@ pub struct RecordConfig {
     pub system_audio: bool,
     pub cursor_highlight: bool,
     pub click_ripples: bool,
+    /// Write `<output>.events.json` (pointer and key events) for auto-polish.
+    #[serde(default)]
+    pub event_log: bool,
     pub output: PathBuf,
 }
 
@@ -344,6 +349,10 @@ pub struct VideoInfo {
 pub trait VideoReader: Send + Sync {
     fn probe(&self, path: &std::path::Path) -> Result<VideoInfo, RecordError>;
     fn frame_at(&self, path: &std::path::Path, ms: u64) -> Result<Raster, RecordError>;
+    /// The audio track as interleaved 48 kHz stereo 16-bit samples. Empty when there is none.
+    fn audio_pcm(&self, _path: &std::path::Path) -> Result<Vec<i16>, RecordError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Plays the audio track of a video while the UI shows the frames. A file with no audio track
@@ -364,6 +373,20 @@ pub trait VideoWriter: Send + Sync {
         fps: u32,
         frames: &mut dyn Iterator<Item = Result<Raster, RecordError>>,
     ) -> Result<RecordingResult, RecordError>;
+
+    /// Like `write`, with an audio track (interleaved 48 kHz stereo 16-bit samples starting at
+    /// time zero). Writers that cannot encode audio drop it.
+    fn write_with_audio(
+        &self,
+        out: &std::path::Path,
+        width: u32,
+        height: u32,
+        fps: u32,
+        frames: &mut dyn Iterator<Item = Result<Raster, RecordError>>,
+        _audio: &[i16],
+    ) -> Result<RecordingResult, RecordError> {
+        self.write(out, width, height, fps, frames)
+    }
 }
 
 // ------------------------------------------------------------------ picture-in-picture
@@ -835,6 +858,7 @@ mod tests {
             system_audio: false,
             cursor_highlight: false,
             click_ripples: false,
+            event_log: false,
             output: "out.mp4".into(),
         }
     }

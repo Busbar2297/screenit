@@ -17,3 +17,6 @@ limit = 60
 
 [budget.record_min_fps_2560x1600_at_30]
 limit = 24
+
+[budget.polish_1080p_frame_ms]
+limit = 40

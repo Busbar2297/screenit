@@ -70,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         system_audio: has("system"),
         cursor_highlight: true,
         click_ripples: false,
+        event_log: false,
         output: out.clone(),
     };
     let mut rec = screenit_platform::MfRecorder::new(screen);
