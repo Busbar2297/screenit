@@ -50,7 +50,7 @@ fn load_transcript(video: &Path) -> Option<Transcript> {
 }
 
 /// Edited subtitle lines, or the lines derived from the transcript.
-fn load_captions(video: &Path) -> Result<Vec<Line>, CommandError> {
+pub(crate) fn load_captions(video: &Path) -> Result<Vec<Line>, CommandError> {
     if let Ok(text) = std::fs::read_to_string(captions_path(video)) {
         let v: Value = serde_json::from_str(&text).map_err(CommandError::failed)?;
         return serde_json::from_value(v.get("lines").cloned().unwrap_or(Value::Null))
@@ -63,12 +63,12 @@ fn load_captions(video: &Path) -> Result<Vec<Line>, CommandError> {
         })
 }
 
-fn save_captions(video: &Path, lines: &[Line]) -> Result<(), CommandError> {
+pub(crate) fn save_captions(video: &Path, lines: &[Line]) -> Result<(), CommandError> {
     let text = serde_json::to_string(&json!({ "lines": lines })).map_err(CommandError::failed)?;
     std::fs::write(captions_path(video), text).map_err(CommandError::failed)
 }
 
-fn video_path(a: &Args<'_>) -> Result<PathBuf, CommandError> {
+pub(crate) fn video_path(a: &Args<'_>) -> Result<PathBuf, CommandError> {
     let p = PathBuf::from(a.str("path")?);
     if !p.is_file() {
         return Err(CommandError::Params(format!("no video at {}", p.display())));
@@ -76,7 +76,9 @@ fn video_path(a: &Args<'_>) -> Result<PathBuf, CommandError> {
     Ok(p)
 }
 
-fn reader(s: &Session) -> Result<std::sync::Arc<dyn screenit_record::VideoReader>, CommandError> {
+pub(crate) fn reader(
+    s: &Session,
+) -> Result<std::sync::Arc<dyn screenit_record::VideoReader>, CommandError> {
     s.services
         .video
         .clone()

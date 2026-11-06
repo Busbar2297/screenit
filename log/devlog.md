@@ -268,3 +268,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - `PolishOpts.extra_cuts` (source ranges) and `PolishPlan.captions` carry silence/filler cuts and subtitles on the output timeline. Parity rows vid.transcribe, vid.captions, vid.silence, vid.denoise, vid.narrate.
 - Speech tab and speech buttons use plain English strings (like the polish bar), not i18n keys except the tab name.
 - Still open: no real speech server was available here, so the HTTP backends are tested against a fake server only; trimming/cutting existing video commands still drop audio; narration is not time-stretched to the picture.
+
+## 2026-11-06 - Local language-model text layer (FocuSee-style, phase 3)
+- tutor/text.rs: prompts and strict parsers for chapters + title, description, subtitle clean-up (same line count back), one caption per keyframe, and a zoom keep-list. Every prompt stays under about 7000 characters (transcripts are thinned evenly) so a 4096-token model can answer; replies cap at 1024 tokens.
+- Commands (background jobs, result beside the video): `video.chapters.suggest`, `video.describe` (both write `clip.chapters.json`), `video.chapters.get/set` (hand edits, YouTube chapter list), `video.captions.polish` (`cleanup` keeps a batch unchanged when the model answers badly; `frames` captions keyframes of a silent recording and will not overwrite subtitles without `replace`). `video.polish` gained `llm_clicks` (the model keeps only the zooms that matter; a bad answer keeps all).
+- Speech row in the video bar: Transcribe, Cut silences, Burn subtitles, Chapters, Describe, Polish text, Denoise. Parity rows vid.chapters, vid.captions.llm, vid.zoomfilter.
+- Still open: the click filter sees only where a click landed (events carry no control names); no real LLM/STT server was used here, so replies are tested with canned model output; UI strings are plain English; the video bar was not screenshotted this session.

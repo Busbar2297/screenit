@@ -731,6 +731,30 @@ status = "done"
 commands = ["video.audio.denoise"]
 tests = ["speech_cmds::tests::denoise_and_narration_render_with_sound", "audio_fx::tests::denoise_keeps_length_and_reduces_noise"]
 [[row]]
+id = "vid.chapters"
+group = "Video editing"
+title = "Chapters, title and description written by a local language model, editable, YouTube chapter list"
+tier = 2
+status = "done"
+commands = ["video.chapters.suggest", "video.describe", "video.chapters.get", "video.chapters.set"]
+tests = ["text_cmds::tests::chapters_and_description_are_written_beside_the_video", "text::tests::chapters_are_sorted_clamped_and_capped", "text::tests::prompts_fit_a_small_context_window"]
+[[row]]
+id = "vid.captions.llm"
+group = "Video editing"
+title = "Subtitle clean-up and captions from keyframes by a local language model"
+tier = 2
+status = "done"
+commands = ["video.captions.polish"]
+tests = ["text_cmds::tests::subtitle_cleanup_keeps_lines_when_the_model_misbehaves", "text_cmds::tests::captions_come_from_keyframes_for_a_silent_recording"]
+[[row]]
+id = "vid.zoomfilter"
+group = "Video editing"
+title = "Language model keeps only the zoom shots that matter"
+tier = 3
+status = "done"
+commands = ["video.polish"]
+tests = ["polish_cmds::tests::the_model_can_drop_unimportant_zooms", "text::tests::keep_list_is_bounded_and_never_empty"]
+[[row]]
 id = "vid.narrate"
 group = "Video editing"
 title = "Narration with a local TTS server or the built-in Windows voice, mixed into the video"

@@ -240,11 +240,30 @@ impl UiApp {
             Some(e) => format!("Polish failed: {e}"),
             None => match st["result"]["video"].as_str() {
                 Some(v) => format!("Video saved: {v}"),
-                None => format!(
-                    "Transcribed: {} words, {} subtitle lines",
-                    st["result"]["words"].as_u64().unwrap_or(0),
-                    st["result"]["lines"].as_u64().unwrap_or(0)
-                ),
+                None => {
+                    let r = &st["result"];
+                    if let Some(c) = r["chapters"].as_array() {
+                        format!(
+                            "{} chapters written: {}",
+                            c.len(),
+                            r["path"].as_str().unwrap_or("")
+                        )
+                    } else if r["description"].is_string() {
+                        format!("Description written: {}", r["path"].as_str().unwrap_or(""))
+                    } else if r["cleaned"].is_number() {
+                        format!(
+                            "Subtitles polished: {} lines cleaned, {} unchanged",
+                            r["cleaned"].as_u64().unwrap_or(0),
+                            r["unchanged"].as_u64().unwrap_or(0)
+                        )
+                    } else {
+                        format!(
+                            "Transcribed: {} words, {} subtitle lines",
+                            r["words"].as_u64().unwrap_or(0),
+                            r["lines"].as_u64().unwrap_or(0)
+                        )
+                    }
+                }
             },
         };
     }

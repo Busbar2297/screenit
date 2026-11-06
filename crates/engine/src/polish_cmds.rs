@@ -184,6 +184,12 @@ pub(crate) struct Sound {
         std::sync::Arc<dyn screenit_record::speech::TextToSpeech>,
         screenit_record::speech::SpeechConfig,
     )>,
+    /// Ask the language model which zoom shots matter: (model, options, narration excerpt).
+    pub zoom_filter: Option<(
+        std::sync::Arc<dyn screenit_tutor::LlmChat>,
+        screenit_tutor::ChatOptions,
+        String,
+    )>,
 }
 
 /// Render `plan` over the recording at `path` into `out` as a background job.
@@ -217,6 +223,13 @@ pub(crate) fn render_job(
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "polished".into());
     spawn_job(s, "polishing", move |sh| {
+        let mut plan = plan;
+        let mut zooms = None;
+        if let Some((chat, opts, speech)) = &sound.zoom_filter
+            && plan.shots.len() > 1
+        {
+            zooms = filter_zooms(&mut plan, &**chat, opts, speech);
+        }
         let mut clips: Vec<(u64, Vec<i16>)> = Vec::new();
         if let Some((tts, cfg)) = &sound.tts {
             for (at, text) in &sound.narration {
@@ -257,8 +270,46 @@ pub(crate) fn render_job(
         Ok(json!({
             "video": out, "duration_ms": plan.total_ms, "frames": res.frames,
             "width": res.width, "height": res.height, "audio": res.has_audio,
+            "zooms_kept": zooms.map(|(k, t): (usize, usize)| json!([k, t])),
         }))
     })
+}
+
+/// Drop the zoom shots the model judges unimportant. A bad or missing answer keeps them all.
+/// Returns (kept, total) when the filter applied.
+fn filter_zooms(
+    plan: &mut PolishPlan,
+    chat: &dyn screenit_tutor::LlmChat,
+    opts: &screenit_tutor::ChatOptions,
+    speech: &str,
+) -> Option<(usize, usize)> {
+    use screenit_tutor::text::{ShotInfo, parse_keep, shots_messages};
+    let (vw, vh) = (plan.video.w.max(1), plan.video.h.max(1));
+    let pct =
+        |v: i32, of: u32| u32::try_from(i64::from(v).max(0) * 100 / i64::from(of)).unwrap_or(0);
+    let infos: Vec<ShotInfo> = plan
+        .shots
+        .iter()
+        .map(|s| ShotInfo {
+            at_ms: s.start_ms,
+            x_pct: pct(s.rect.x, vw),
+            y_pct: pct(s.rect.y, vh),
+            w_pct: s.rect.w * 100 / vw,
+            h_pct: s.rect.h * 100 / vh,
+        })
+        .collect();
+    let keep = chat
+        .chat(&shots_messages(&infos, speech), opts)
+        .and_then(|r| parse_keep(&r, infos.len()))
+        .ok()?;
+    let total = plan.shots.len();
+    let mut i = 0usize;
+    plan.shots.retain(|_| {
+        let k = keep.contains(&i);
+        i += 1;
+        k
+    });
+    Some((plan.shots.len(), total))
 }
 
 /// Cuts and subtitles to apply to a polish, from the audio and the transcript sidecar.
@@ -271,7 +322,14 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
     let a = Args::new(
         p,
         &keys_with(&[
-            "path", "output", "fps", "silence", "fillers", "captions", "denoise",
+            "path",
+            "output",
+            "fps",
+            "silence",
+            "fillers",
+            "captions",
+            "denoise",
+            "llm_clicks",
         ]),
     )?;
     let path = video_path(&a)?;
@@ -289,8 +347,23 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
     opts.extra_cuts = edits.cuts;
     let (mut plan, _) = plan_for(s, &path, &opts)?;
     plan.set_captions(&edits.captions);
+    let zoom_filter = if a.bool("llm_clicks", false)? {
+        let (chat, mut o) = crate::tutor_cmds::chat_setup(s)
+            .ok_or_else(|| CommandError::Disabled("no language model available".into()))?;
+        o.max_tokens = 256;
+        let speech = crate::speech_cmds::load_captions(&path)
+            .map(|l| {
+                let items: Vec<_> = l.into_iter().map(|x| (x.start_ms, x.text)).collect();
+                screenit_tutor::text::excerpt(&items, 2500)
+            })
+            .unwrap_or_default();
+        Some((chat, o, speech))
+    } else {
+        None
+    };
     let sound = Sound {
         denoise: a.bool("denoise", false)?,
+        zoom_filter,
         ..Sound::default()
     };
     render_job(s, path, out, plan, fps, sound, "polished")
@@ -328,7 +401,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "video.polish",
             "Auto-polish Video",
             concat!(
-                r#"{"path":str,"output":str.mp4,"fps"?:5..60,"silence"?:bool,"fillers"?:bool,"captions"?:bool,"denoise"?:bool,"#,
+                r#"{"path":str,"output":str.mp4,"fps"?:5..60,"silence"?:bool,"fillers"?:bool,"captions"?:bool,"denoise"?:bool,"llm_clicks"?:bool (language model keeps only the zooms that matter),"#,
                 opts!(),
                 "}"
             ),
@@ -433,6 +506,61 @@ mod tests {
         assert!(st["error"].is_null(), "{st}");
         assert!(st["result"]["frames"].as_u64().unwrap() > 0, "{st}");
         assert!(s.dispatch("video.polish.opts", &json!({})).is_ok());
+        let _ = std::fs::remove_dir_all(v.parent().unwrap());
+    }
+
+    #[test]
+    fn the_model_can_drop_unimportant_zooms() {
+        let v = clip("llm", false);
+        let ev = |t, kind, x, y| screenit_record::events::InputEvent {
+            t_ms: t,
+            kind,
+            x,
+            y,
+            button: 0,
+            chord: String::new(),
+            rect: Some(Rect::new(x - 20, y - 10, 40, 20)),
+        };
+        EventLog {
+            region: Rect::new(0, 0, 320, 180),
+            duration_ms: 6000,
+            events: vec![
+                ev(500, EventKind::Down, 170, 90),
+                ev(3500, EventKind::Down, 60, 40),
+                ev(5000, EventKind::Move, 9, 9),
+            ],
+        }
+        .save(&v)
+        .unwrap();
+        let out = v.with_file_name("p.mp4");
+        let run = |reply: &str| {
+            let llm = screenit_tutor::fakes::FakeLlm::new(vec![Ok(reply.to_string())]);
+            let mut s = session();
+            s.services.chat = Some(llm.clone());
+            s.dispatch(
+                "video.polish",
+                &json!({"path": v, "output": out, "fps": 5, "llm_clicks": true}),
+            )
+            .unwrap();
+            let st = s
+                .dispatch("tutor.wait", &json!({"timeout_ms": 20000}))
+                .unwrap();
+            assert!(st["error"].is_null(), "{st}");
+            (st["result"]["zooms_kept"].clone(), llm.calls().len())
+        };
+        let (kept, calls) = run(r#"{"keep":[1]}"#);
+        assert_eq!((kept, calls), (json!([1, 2]), 1));
+        let (kept, _) = run("the model rambled");
+        assert!(kept.is_null(), "a bad answer keeps every zoom: {kept}");
+        let mut none = session();
+        assert!(
+            none.dispatch(
+                "video.polish",
+                &json!({"path": v, "output": out, "llm_clicks": true})
+            )
+            .is_err(),
+            "no language model, no filter"
+        );
         let _ = std::fs::remove_dir_all(v.parent().unwrap());
     }
 

@@ -322,7 +322,7 @@ pub(crate) fn spawn_job(
     Ok(json!({"started": phase}))
 }
 
-fn chat_setup(s: &Session) -> Option<(Arc<dyn screenit_tutor::LlmChat>, ChatOptions)> {
+pub(crate) fn chat_setup(s: &Session) -> Option<(Arc<dyn screenit_tutor::LlmChat>, ChatOptions)> {
     let chat = s.services.chat.clone()?;
     let o = &s.settings.ocr;
     Some((

@@ -25,6 +25,7 @@ pub mod produce;
 pub mod rehearse;
 pub mod safety;
 pub mod script;
+pub mod text;
 mod traits;
 
 pub use error::{TutorError, TutorResult};

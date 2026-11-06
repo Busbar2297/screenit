@@ -112,7 +112,7 @@ pub fn extract_json(text: &str) -> Option<String> {
 
 /// The last JSON object in a reply that has a top-level `key` (`chapters` for a script, `action`
 /// for a step). A stray `{"type":...}` quoted while the model thinks aloud is never taken for it.
-fn extract_keyed(text: &str, key: &str) -> Option<String> {
+pub(crate) fn extract_keyed(text: &str, key: &str) -> Option<String> {
     extract_any(text, &[key])
 }
 

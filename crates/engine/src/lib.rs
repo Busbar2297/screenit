@@ -30,6 +30,7 @@ mod polish_cmds;
 mod polish_render;
 pub mod settings;
 mod system_cmds;
+mod text_cmds;
 mod tutor_cmds;
 mod tutor_render;
 pub use tutor_cmds::TutorShared;
