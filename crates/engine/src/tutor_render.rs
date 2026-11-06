@@ -132,6 +132,7 @@ pub fn render_video(
     fps: u32,
     out: &Path,
     abort: &AtomicBool,
+    audio: &[i16],
     on_frame: &dyn Fn(u32, u32),
 ) -> Result<RecordingResult, String> {
     let fps = fps.clamp(1, 60);
@@ -187,7 +188,7 @@ pub fn render_video(
         })())
     });
     writer
-        .write(out, w, h, fps, &mut frames)
+        .write_with_audio(out, w, h, fps, &mut frames, audio)
         .map_err(|e| e.to_string())
 }
 

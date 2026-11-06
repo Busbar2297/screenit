@@ -85,6 +85,8 @@ pub struct PolishOpts {
     pub padding_pct: u8,
     /// Corner radius, percent of the shorter side.
     pub corner_pct: u8,
+    /// Extra source ranges (start_ms, end_ms) to cut (silences, filler words).
+    pub extra_cuts: Vec<(u64, u64)>,
 }
 
 impl Default for PolishOpts {
@@ -103,6 +105,7 @@ impl Default for PolishOpts {
             aspect: Aspect::Native,
             padding_pct: 0,
             corner_pct: 0,
+            extra_cuts: Vec::new(),
         }
     }
 }
@@ -115,6 +118,9 @@ impl PolishOpts {
         }
         if !self.speedup_factor.is_finite() || !(1.0..=16.0).contains(&self.speedup_factor) {
             return Err("speedup_factor must be 1..=16".into());
+        }
+        if self.extra_cuts.len() > 100_000 {
+            return Err("too many extra cuts".into());
         }
         if self.padding_pct > 25 || self.corner_pct > 25 {
             return Err("padding_pct and corner_pct must be 0..=25".into());
@@ -148,6 +154,14 @@ pub struct Badge {
     pub text: String,
 }
 
+/// A subtitle line on the output timeline.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Caption {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Click {
     pub at_ms: u64,
@@ -164,6 +178,7 @@ pub struct PolishPlan {
     pub shots: Vec<Shot>,
     pub badges: Vec<Badge>,
     pub clicks: Vec<Click>,
+    pub captions: Vec<Caption>,
     pub opts: PolishOpts,
     #[serde(skip)]
     moves: Vec<(u64, Point)>,
@@ -254,6 +269,7 @@ fn ranges(events: &[InputEvent], duration: u64, o: &PolishOpts) -> (Spans, Spans
             last = last.max(t);
         }
     }
+    cuts.extend(o.extra_cuts.iter().copied().filter(|(a, b)| b > a));
     let mut fast = Vec::new();
     if o.typing_speedup && o.speedup_factor > 1.05 {
         let typing: Vec<u64> = events
@@ -374,6 +390,33 @@ impl PolishPlan {
             }
         }
         out
+    }
+
+    /// Place subtitle lines (source times) on the output timeline; lines that fall entirely in
+    /// a cut disappear.
+    pub fn set_captions(&mut self, lines: &[crate::speech::Line]) {
+        let mut out = Vec::new();
+        for l in lines.iter().take(100_000) {
+            let Some(a) = self.src_to_out(l.start_ms) else {
+                continue;
+            };
+            let b = self.src_to_out(l.end_ms).unwrap_or(self.total_ms);
+            if b > a && !l.text.trim().is_empty() {
+                out.push(Caption {
+                    start_ms: a,
+                    end_ms: b,
+                    text: l.text.clone(),
+                });
+            }
+        }
+        self.captions = out;
+    }
+
+    /// The caption showing at output time `t`.
+    pub fn caption(&self, t: u64) -> Option<&Caption> {
+        self.captions
+            .iter()
+            .find(|c| t >= c.start_ms && t < c.end_ms)
     }
 
     /// Source time shown at an output time, `None` past the end.
@@ -761,6 +804,38 @@ mod tests {
         assert_eq!(a[0], 0);
         assert!(p.total_ms < 12_000);
         assert!(PolishPlan::default().retime_audio(&pcm).is_empty());
+    }
+
+    #[test]
+    fn extra_cuts_and_captions_follow_the_timeline() {
+        let o = PolishOpts {
+            trim_idle: false,
+            typing_speedup: false,
+            extra_cuts: vec![(2000, 3000)],
+            ..PolishOpts::default()
+        };
+        let mut p = PolishPlan::build(&log(vec![], 6000), 6000, video(), &o);
+        assert_eq!(p.total_ms, 5000);
+        let line = |a, b, t: &str| crate::speech::Line {
+            start_ms: a,
+            end_ms: b,
+            text: t.into(),
+        };
+        p.set_captions(&[
+            line(500, 1500, "one"),
+            line(2200, 2800, "gone"),
+            line(3500, 4500, "two"),
+            line(9000, 9500, "late"),
+        ]);
+        assert_eq!(p.captions.len(), 2);
+        assert_eq!(p.caption(1000).map(|c| c.text.as_str()), Some("one"));
+        assert_eq!(p.caption(2700).map(|c| c.text.as_str()), Some("two"));
+        assert!(p.caption(2000).is_none());
+        let bad = PolishOpts {
+            extra_cuts: vec![(0, 1); 100_001],
+            ..PolishOpts::default()
+        };
+        assert!(bad.validate().is_err());
     }
 
     #[test]

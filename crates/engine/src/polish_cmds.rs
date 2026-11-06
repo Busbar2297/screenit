@@ -75,6 +75,7 @@ fn opts_from(a: &Args<'_>) -> Result<PolishOpts, CommandError> {
         aspect,
         padding_pct: pct("padding_pct", d.padding_pct)?,
         corner_pct: pct("corner_pct", d.corner_pct)?,
+        extra_cuts: Vec::new(),
     };
     o.validate().map_err(CommandError::Params)?;
     Ok(o)
@@ -156,10 +157,8 @@ fn polish_opts(s: &mut Session, p: &Value) -> CmdResult {
     }))
 }
 
-fn polish(s: &mut Session, p: &Value) -> CmdResult {
-    let a = Args::new(p, &keys_with(&["path", "output", "fps"]))?;
-    let path = video_path(&a)?;
-    let opts = opts_from(&a)?;
+/// The `output` parameter: an `.mp4` path that is not the source recording.
+pub(crate) fn out_path(a: &Args<'_>, src: &Path) -> Result<PathBuf, CommandError> {
     let out = PathBuf::from(a.str("output")?);
     if out
         .extension()
@@ -167,13 +166,36 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
     {
         return Err(CommandError::Params("output must be an .mp4 path".into()));
     }
-    if out == path {
+    if out == src {
         return Err(CommandError::Params(
             "output must be a different file than the recording".into(),
         ));
     }
-    let fps = a.opt_u32("fps")?.unwrap_or(30).clamp(5, 60);
-    let (plan, _) = plan_for(s, &path, &opts)?;
+    Ok(out)
+}
+
+/// Sound edits applied while rendering.
+#[derive(Default)]
+pub(crate) struct Sound {
+    pub denoise: bool,
+    /// `(output start ms, text)` spoken with `tts`.
+    pub narration: Vec<(u64, String)>,
+    pub tts: Option<(
+        std::sync::Arc<dyn screenit_record::speech::TextToSpeech>,
+        screenit_record::speech::SpeechConfig,
+    )>,
+}
+
+/// Render `plan` over the recording at `path` into `out` as a background job.
+pub(crate) fn render_job(
+    s: &mut Session,
+    path: PathBuf,
+    out: PathBuf,
+    plan: PolishPlan,
+    fps: u32,
+    sound: Sound,
+    tag: &'static str,
+) -> CmdResult {
     if plan.total_ms == 0 {
         return Err(CommandError::Failed("the recording is empty".into()));
     }
@@ -195,6 +217,19 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "polished".into());
     spawn_job(s, "polishing", move |sh| {
+        let mut clips: Vec<(u64, Vec<i16>)> = Vec::new();
+        if let Some((tts, cfg)) = &sound.tts {
+            for (at, text) in &sound.narration {
+                if sh.abort.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(TutorError::Record("aborted".into()));
+                }
+                clips.push((
+                    *at,
+                    tts.speak(text, cfg)
+                        .map_err(|e| TutorError::Record(e.to_string()))?,
+                ));
+            }
+        }
         let res = render_polish(&PolishJob {
             reader: &*reader,
             writer: &*writer,
@@ -203,6 +238,8 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
             fps,
             out: &out,
             abort: &sh.abort,
+            denoise: sound.denoise,
+            narration: &clips,
             on_frame: &|done, total| sh.set_progress(done, total),
         })
         .map_err(TutorError::Record)?;
@@ -214,7 +251,7 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
                 app: String::new(),
                 width: res.width,
                 height: res.height,
-                tag: "polished",
+                tag,
             },
         );
         Ok(json!({
@@ -224,6 +261,40 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
     })
 }
 
+/// Cuts and subtitles to apply to a polish, from the audio and the transcript sidecar.
+pub(crate) struct AudioEdits {
+    pub cuts: Vec<(u64, u64)>,
+    pub captions: Vec<screenit_record::speech::Line>,
+}
+
+fn polish(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(
+        p,
+        &keys_with(&[
+            "path", "output", "fps", "silence", "fillers", "captions", "denoise",
+        ]),
+    )?;
+    let path = video_path(&a)?;
+    let mut opts = opts_from(&a)?;
+    let out = out_path(&a, &path)?;
+    let fps = a.opt_u32("fps")?.unwrap_or(30).clamp(5, 60);
+    let edits = crate::speech_cmds::audio_edits(
+        s,
+        &path,
+        a.bool("silence", false)?,
+        a.bool("fillers", false)?,
+        a.bool("captions", false)?,
+        &crate::speech_cmds::SilenceOpts::default(),
+    )?;
+    opts.extra_cuts = edits.cuts;
+    let (mut plan, _) = plan_for(s, &path, &opts)?;
+    plan.set_captions(&edits.captions);
+    let sound = Sound {
+        denoise: a.bool("denoise", false)?,
+        ..Sound::default()
+    };
+    render_job(s, path, out, plan, fps, sound, "polished")
+}
 pub fn specs() -> Vec<CommandSpec> {
     let c = |id, label, params, run| CommandSpec {
         id,
@@ -257,7 +328,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "video.polish",
             "Auto-polish Video",
             concat!(
-                r#"{"path":str,"output":str.mp4,"fps"?:5..60,"#,
+                r#"{"path":str,"output":str.mp4,"fps"?:5..60,"silence"?:bool,"fillers"?:bool,"captions"?:bool,"denoise"?:bool,"#,
                 opts!(),
                 "}"
             ),

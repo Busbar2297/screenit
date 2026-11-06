@@ -19,6 +19,7 @@ mod ocr;
 mod playback;
 mod screen;
 pub mod shell;
+mod tts;
 mod uia;
 pub mod update;
 mod util;
@@ -66,6 +67,9 @@ pub fn services() -> Services {
         ocr: Some(Arc::new(WinOcr)),
         llm: Some(Arc::new(screenit_llm::LmStudio)),
         chat: Some(Arc::new(screenit_llm::LmStudio)),
+        stt: Some(Arc::new(screenit_llm::HttpSpeech)),
+        tts: Some(Arc::new(screenit_llm::HttpSpeech)),
+        tts_fallback: Some(Arc::new(tts::WinTts)),
         ui: Some(Arc::new(automation::Win32Ui)),
         input: Some(Arc::new(automation::Win32Input::new())),
         launcher: Some(Arc::new(automation::Win32Launcher)),

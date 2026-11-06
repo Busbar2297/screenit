@@ -698,6 +698,46 @@ tier = 2
 status = "done"
 commands = ["video.polish"]
 tests = ["polish::tests::vertical_reframing_follows_the_pointer_inside_the_frame", "polish_render::tests::vertical_with_padding_has_rounded_background_corners"]
+[[row]]
+id = "vid.transcribe"
+group = "Video editing"
+title = "Speech to text with word times through a local OpenAI-compatible server (whisper.cpp, Speaches)"
+tier = 2
+status = "done"
+commands = ["video.transcribe"]
+tests = ["speech_cmds::tests::transcribe_then_edit_export_and_burn_subtitles", "speech::tests::transcribes_through_a_fake_server"]
+[[row]]
+id = "vid.captions"
+group = "Video editing"
+title = "Subtitles from the transcript: edit, export SRT, burn into the video"
+tier = 2
+status = "done"
+commands = ["video.captions.get", "video.captions.set", "video.captions.export", "video.captions.burn"]
+tests = ["speech_cmds::tests::transcribe_then_edit_export_and_burn_subtitles", "speech::tests::words_group_into_lines", "polish::tests::extra_cuts_and_captions_follow_the_timeline"]
+[[row]]
+id = "vid.silence"
+group = "Video editing"
+title = "Cut silences and filler words from picture and sound"
+tier = 2
+status = "done"
+commands = ["video.silence.cut"]
+tests = ["speech_cmds::tests::silence_and_fillers_are_cut_from_picture_and_sound", "audio_fx::tests::finds_long_silences_and_keeps_a_margin", "audio_fx::tests::fillers_and_merging"]
+[[row]]
+id = "vid.denoise"
+group = "Video editing"
+title = "Noise reduction on a recording's sound (RNNoise model)"
+tier = 2
+status = "done"
+commands = ["video.audio.denoise"]
+tests = ["speech_cmds::tests::denoise_and_narration_render_with_sound", "audio_fx::tests::denoise_keeps_length_and_reduces_noise"]
+[[row]]
+id = "vid.narrate"
+group = "Video editing"
+title = "Narration with a local TTS server or the built-in Windows voice, mixed into the video"
+tier = 2
+status = "done"
+commands = ["video.narrate", "tutor.produce"]
+tests = ["speech_cmds::tests::denoise_and_narration_render_with_sound", "speech::tests::speaks_through_a_fake_server", "tutor_cmds::tests::rehearse_perform_produce_end_to_end"]
 
 # ---- Library ----
 [[row]]

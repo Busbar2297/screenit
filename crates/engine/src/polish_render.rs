@@ -31,7 +31,11 @@ pub struct PolishJob<'a> {
     pub fps: u32,
     pub out: &'a Path,
     pub abort: &'a AtomicBool,
-    /// `(frames done, frames total)`.
+    /// Reduce background noise in the recording's own sound.
+    pub denoise: bool,
+    /// Spoken clips (output start ms, 48 kHz stereo samples) mixed over the sound.
+    pub narration: &'a [(u64, Vec<i16>)],
+    /// (frames done, frames total).
     pub on_frame: &'a dyn Fn(u32, u32),
 }
 
@@ -111,6 +115,32 @@ pub fn draw_badge(r: &mut Raster, text: &str) {
         PointF::new(x0 as f32 + pad, y0 as f32 + pad * 0.5),
         size,
         w as f32 * 0.8,
+        Color::WHITE,
+    );
+}
+
+/// A subtitle: wrapped white text on a dark bar near the bottom edge.
+pub fn draw_caption(r: &mut Raster, text: &str) {
+    let (w, h) = (r.width(), r.height());
+    let size = (h as f32 / 24.0).max(12.0);
+    let wrap = w as f32 * 0.86;
+    let lay = layout_text(text, size, wrap);
+    let pad = size * 0.5;
+    let bw = (lay.width + pad * 2.0) as i32;
+    let bh = (lay.height() + pad) as i32;
+    let x0 = ((w as i32 - bw) / 2).max(0);
+    let y0 = (h as i32 - bh - (h as f32 * 0.05) as i32).max(0);
+    for y in y0..(y0 + bh).min(h as i32) {
+        for x in x0..(x0 + bw).min(w as i32) {
+            r.blend(x, y, [10, 12, 20, 255], 200);
+        }
+    }
+    draw_text_box(
+        r,
+        text,
+        PointF::new(x0 as f32 + pad, y0 as f32 + pad * 0.5),
+        size,
+        wrap,
         Color::WHITE,
     );
 }
@@ -228,6 +258,9 @@ fn frame_at_time(
     if let Some(b) = plan.badge(t) {
         draw_badge(&mut img, &b.text);
     }
+    if let Some(c) = plan.caption(t) {
+        draw_caption(&mut img, &c.text);
+    }
     on_canvas(&img, w, h, pad, radius)
 }
 
@@ -239,12 +272,24 @@ pub fn render_polish(job: &PolishJob<'_>) -> Result<RecordingResult, String> {
     let metrics = frame_metrics(job.plan, size.0, size.1);
     let total = job.plan.total_ms.max(1);
     let n = (total * u64::from(fps) / 1000).clamp(1, 400_000);
-    let audio = if info.has_audio {
+    let mut audio = if info.has_audio {
         job.plan
             .retime_audio(&job.reader.audio_pcm(job.video).map_err(|e| e.to_string())?)
     } else {
         Vec::new()
     };
+    if job.denoise {
+        audio = screenit_record::audio_fx::denoise(&audio);
+    }
+    if !job.narration.is_empty() {
+        let len = (total as usize).saturating_mul(48 * 2);
+        if audio.len() < len {
+            audio.resize(len, 0);
+        }
+        for (at, clip) in job.narration {
+            screenit_record::audio_fx::mix_in(&mut audio, clip, *at, len);
+        }
+    }
     let mut i = 0u64;
     let mut frames = std::iter::from_fn(|| {
         if i >= n {
@@ -371,6 +416,8 @@ mod tests {
             fps: 10,
             out: Path::new("b.mp4"),
             abort: &abort,
+            denoise: false,
+            narration: &[],
             on_frame: &|_, _| {},
         })
         .unwrap();
@@ -435,6 +482,14 @@ mod tests {
         let mut r = Raster::new(320, 180, [0, 0, 0, 255]).unwrap();
         draw_badge(&mut r, "ctrl+s");
         assert!(r.data().chunks(4).any(|p| p[0] > 200));
+        let mut c = Raster::new(320, 180, [0, 0, 0, 255]).unwrap();
+        draw_caption(
+            &mut c,
+            "A long subtitle line that has to wrap onto a second line",
+        );
+        assert!(c.data().chunks(4).any(|p| p[0] > 200));
+        assert_eq!(c.get(160, 5), Some([0, 0, 0, 255]), "the top stays clear");
+        draw_caption(&mut c, "");
         let mut r = Raster::new(40, 40, [0, 0, 0, 255]).unwrap();
         disc(&mut r, 20, 20, 10.0, [255, 255, 255, 255], 1.0);
         assert_eq!(r.get(20, 20), Some([255, 255, 255, 255]));
@@ -450,6 +505,8 @@ mod tests {
             fps: 10,
             out: Path::new("b.mp4"),
             abort: &abort,
+            denoise: false,
+            narration: &[],
             on_frame: &|_, _| {},
         });
         assert!(res.is_err());

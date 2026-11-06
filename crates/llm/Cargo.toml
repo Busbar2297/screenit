@@ -10,6 +10,7 @@ screenit-codecs = { workspace = true }
 screenit-algo = { workspace = true }
 screenit-capture = { workspace = true }
 screenit-tutor = { workspace = true }
+screenit-record = { workspace = true }
 serde_json = { workspace = true }
 ureq = { workspace = true }
 

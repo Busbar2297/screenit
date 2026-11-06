@@ -14,6 +14,7 @@ pub(crate) enum Tab {
     General,
     Recording,
     Ocr,
+    Speech,
     Privacy,
     Updates,
 }
@@ -150,6 +151,7 @@ impl UiApp {
                         (Tab::General, "settings.cat.general"),
                         (Tab::Recording, "settings.cat.recording"),
                         (Tab::Ocr, "settings.cat.ocr"),
+                        (Tab::Speech, "settings.cat.speech"),
                         (Tab::Privacy, "settings.cat.privacy"),
                         (Tab::Updates, "settings.cat.updates"),
                     ] {
@@ -170,6 +172,7 @@ impl UiApp {
                         Tab::General => self.general_form(ui, &mut s),
                         Tab::Recording => recording_form(ui, &mut s),
                         Tab::Ocr => self.ocr_form(ui, &mut s),
+                        Tab::Speech => self.speech_form(ui, &mut s),
                         Tab::Privacy => privacy_form(ui, &mut s),
                         Tab::Updates => self.updates_form(ui, &mut s),
                     });
@@ -447,8 +450,116 @@ impl UiApp {
         });
     }
 
+    fn speech_form(&mut self, ui: &mut egui::Ui, s: &mut Settings) {
+        let sp = &mut s.speech;
+        ui.label(egui::RichText::new("Speech servers").strong());
+        ui.label(
+            egui::RichText::new(
+                "Local servers that speak the OpenAI audio API (whisper.cpp server, Speaches). \
+                 Used for subtitles, silence and filler cuts, and narration.",
+            )
+            .size(11.5)
+            .color(MUTED),
+        );
+        ui.add_space(6.0);
+        let field = |ui: &mut egui::Ui, label: &str, v: &mut String, hint: &str| {
+            row(ui, label, |ui| {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(v)
+                            .hint_text(hint)
+                            .desired_width(320.0),
+                    );
+                });
+            });
+        };
+        field(
+            ui,
+            "Speech-to-text URL",
+            &mut sp.stt_url,
+            "http://localhost:8000/v1",
+        );
+        field(
+            ui,
+            "Speech-to-text model",
+            &mut sp.stt_model,
+            "e.g. whisper-1",
+        );
+        field(
+            ui,
+            "Spoken language",
+            &mut sp.stt_language,
+            "empty = detect, or en / ar",
+        );
+        field(
+            ui,
+            "Text-to-speech URL",
+            &mut sp.tts_url,
+            "empty = Windows voice",
+        );
+        field(ui, "Text-to-speech model", &mut sp.tts_model, "e.g. tts-1");
+        field(ui, "Voice", &mut sp.tts_voice, "e.g. alloy");
+        row(ui, "API key", |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut sp.api_key)
+                        .password(true)
+                        .hint_text("optional")
+                        .desired_width(320.0),
+                );
+            });
+        });
+        row(ui, "Timeout", |ui| {
+            ui.add(
+                egui::DragValue::new(&mut sp.timeout_secs)
+                    .range(1..=1800)
+                    .suffix(" s"),
+            );
+        });
+        let cfg = sp.stt_config();
+        crate::h_row(ui, |ui| {
+            if ui
+                .add_enabled(
+                    self.speech_rx.is_none(),
+                    egui::Button::new("Test connection"),
+                )
+                .clicked()
+                && let Some(llm) = self.session.services.llm.clone()
+            {
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.speech_rx = Some(rx);
+                self.speech_msg = t("ocr.connecting");
+                let ctx = ui.ctx().clone();
+                std::thread::spawn(move || {
+                    let cfg = screenit_capture::LlmConfig {
+                        url: cfg.url,
+                        model: cfg.model,
+                        api_key: cfg.api_key,
+                        timeout_secs: cfg.timeout_secs.min(10),
+                    };
+                    let _ = tx.send(llm.models(&cfg).map(|m| m.len()).map_err(|e| e.to_string()));
+                    ctx.request_repaint();
+                });
+            }
+            ui.label(
+                egui::RichText::new(&self.speech_msg)
+                    .size(11.5)
+                    .color(MUTED),
+            );
+        });
+    }
+
     /// Collect finished background jobs (connection test, OCR).
     pub(crate) fn poll_ocr_jobs(&mut self) {
+        if let Some(rx) = &self.speech_rx
+            && let Ok(r) = rx.try_recv()
+        {
+            self.speech_rx = None;
+            self.speech_msg = match r {
+                Ok(n) => tf("ocr.connected", &[("n", &n.to_string())]),
+                Err(e) => tf("ocr.failed", &[("error", &e)]),
+            };
+        }
         if let Some(rx) = &self.llm_rx
             && let Ok(r) = rx.try_recv()
         {

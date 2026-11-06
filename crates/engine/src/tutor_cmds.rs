@@ -747,6 +747,7 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
             "trim_idle",
             "chapter_cards",
             "zoom_factor",
+            "narrate",
         ],
     )?;
     let out = PathBuf::from(a.str("output")?);
@@ -757,6 +758,19 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
         return Err(CommandError::Params("output must be an .mp4 path".into()));
     }
     let opts = produce_opts(&a)?;
+    let narrate = a.bool("narrate", false)?;
+    let voice = if narrate {
+        let sp = &s.settings.speech;
+        let tts = if sp.tts_url.trim().is_empty() {
+            s.services.tts_fallback.clone()
+        } else {
+            s.services.tts.clone()
+        }
+        .ok_or_else(|| CommandError::Disabled("no text-to-speech available".into()))?;
+        Some((tts, sp.tts_config()))
+    } else {
+        None
+    };
     let fps = a.opt_u32("fps")?.unwrap_or(30).clamp(5, 60);
     let perf = match a.opt_str("performance")? {
         Some(path) => {
@@ -787,7 +801,36 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
         std::fs::create_dir_all(d).map_err(CommandError::failed)?;
     }
     spawn_job(s, "producing", move |sh| {
-        let plan = Plan::build(&perf, &opts);
+        let mut plan = Plan::build(
+            &perf,
+            &ProduceOpts {
+                captions: opts.captions || narrate,
+                ..opts.clone()
+            },
+        );
+        let mut audio: Vec<i16> = Vec::new();
+        if let Some((tts, cfg)) = &voice {
+            // Each narration line is spoken where its caption starts, never over the last one.
+            let len = (plan.total_ms as usize).saturating_mul(48 * 2);
+            let mut free_at = 0u64;
+            for c in &plan.captions {
+                if sh.abort.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(TutorError::Record("aborted".into()));
+                }
+                let clip = tts
+                    .speak(&c.text, cfg)
+                    .map_err(|e| TutorError::Record(e.to_string()))?;
+                let at = c.start_ms.max(free_at);
+                screenit_record::audio_fx::mix_in(&mut audio, &clip, at, len);
+                free_at = at + (clip.len() / 96) as u64;
+            }
+            if audio.len() < len {
+                audio.resize(len, 0);
+            }
+        }
+        if !opts.captions {
+            plan.captions.clear();
+        }
         let res = render_video(
             &*reader,
             &*writer,
@@ -796,6 +839,7 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
             fps,
             &out,
             &sh.abort,
+            &audio,
             &|done, total| sh.set_progress(done, total),
         )
         .map_err(TutorError::Record)?;
@@ -1234,7 +1278,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "tutor.produce",
             "Produce Tutorial Video",
             "Tutorial",
-            r#"{"output":str.mp4,"performance"?:str,"fps"?:int,"zoom"?:bool,"captions"?:bool,"callouts"?:bool,"trim_idle"?:bool,"chapter_cards"?:bool,"zoom_factor"?:1..4}"#,
+            r#"{"output":str.mp4,"performance"?:str,"fps"?:int,"zoom"?:bool,"captions"?:bool,"callouts"?:bool,"trim_idle"?:bool,"chapter_cards"?:bool,"zoom_factor"?:1..4,"narrate"?:bool (speak each caption with the configured voice)}"#,
             produce,
         ),
         c("tutor.status", "Tutorial Status", "Tutorial", "{}", status),
@@ -1693,6 +1737,15 @@ mod tests {
         .unwrap();
         assert_eq!(done(&mut s2)["error"], Value::Null);
         assert!(!dir.join("b.srt").exists());
+        // narration needs a voice; with one, the captions are spoken but not burned in
+        let narrated = json!({"output": dir.join("c.mp4"), "performance": dir.join("Notes_demo_.tutor.json"), "captions": false, "narrate": true, "fps": 10});
+        assert!(s2.dispatch("tutor.produce", &narrated).is_err());
+        s2.services.tts_fallback = Some(std::sync::Arc::new(screenit_testkit::FakeTts {
+            frames_per_char: 480,
+        }));
+        s2.dispatch("tutor.produce", &narrated).unwrap();
+        assert_eq!(done(&mut s2)["error"], Value::Null);
+        assert!(!dir.join("c.srt").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

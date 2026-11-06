@@ -225,3 +225,4 @@
 "tutor.need_goal" = "Write what the tutorial should teach."
 "tutor.need_script" = "Plan a script first. Rehearse, Record and Produce use that script."
 "tutor.open_target" = "No app path and no window title: Plan uses the frontmost window you left open."
+"settings.cat.speech" = "Speech"

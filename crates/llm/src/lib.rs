@@ -2,6 +2,9 @@
 //!
 //! Plain HTTP with strict timeouts and size caps. Every failure is an `Err`, never a panic.
 
+mod speech;
+pub use speech::{HttpSpeech, multipart, parse_transcript};
+
 use screenit_capture::{CaptureError, LlmConfig, LlmOcr};
 use screenit_codecs::{Format, encode};
 use screenit_raster::Raster;

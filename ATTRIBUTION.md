@@ -23,6 +23,12 @@ screenIt is built on the Rust ecosystem, notably `eframe`/`egui`, `ureq` (HTTP t
 (Microsoft), `tray-icon`, `image`, `ab_glyph`, `zip`, `serde`, `clap` and `chrono`, all under
 permissive licenses (MIT, Apache-2.0, or similar). The full dependency list is in `Cargo.lock`.
 
+## Audio
+
+- 
+nnoiseless (BSD-3-Clause), a Rust port of Xiph's RNNoise, reduces noise in recorded sound. The trained model is compiled into the crate.
+- Speech to text and text to speech talk to servers the user runs locally (for example whisper.cpp server or Speaches); no model is bundled with screenIt.
+
 ## Platform
 
 Capture, recording, OCR and encoding use components that ship with Windows (GDI, DWM, Media

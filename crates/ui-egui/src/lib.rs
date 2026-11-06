@@ -206,6 +206,8 @@ pub struct UiApp {
     pub(crate) win_langs: Option<Vec<String>>,
     pub(crate) llm_models: Vec<String>,
     pub(crate) llm_msg: String,
+    pub(crate) speech_msg: String,
+    pub(crate) speech_rx: Option<Receiver<Result<usize, String>>>,
     pub(crate) llm_rx: Option<Receiver<Result<Vec<String>, String>>>,
     pub(crate) ocr_rx: Option<Receiver<Result<screenit_engine::OcrOutput, String>>>,
     /// A Hide secrets scan running on a worker thread.
@@ -281,6 +283,8 @@ impl UiApp {
             win_langs: None,
             llm_models: Vec::new(),
             llm_msg: String::new(),
+            speech_msg: String::new(),
+            speech_rx: None,
             llm_rx: None,
             ocr_rx: None,
             secret_rx: None,

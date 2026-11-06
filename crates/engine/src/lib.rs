@@ -24,6 +24,7 @@ pub mod mcp;
 mod ml_cmds;
 mod record_cmds;
 mod secrets;
+mod speech_cmds;
 pub use secrets::{Found, ScanResult, SecretScan};
 mod polish_cmds;
 mod polish_render;
@@ -127,6 +128,11 @@ pub struct Services {
     pub launcher: Option<Arc<dyn screenit_tutor::AppLauncher>>,
     /// Chat model that plans and repairs tutorial scripts.
     pub chat: Option<Arc<dyn screenit_tutor::LlmChat>>,
+    /// Speech to text and text to speech (local server, or the OS voice for narration).
+    pub stt: Option<Arc<dyn screenit_record::speech::SpeechToText>>,
+    pub tts: Option<Arc<dyn screenit_record::speech::TextToSpeech>>,
+    /// The OS voice used when no text-to-speech server is configured.
+    pub tts_fallback: Option<Arc<dyn screenit_record::speech::TextToSpeech>>,
     /// Clock and sleeper for tutorial runs (virtual time in tests).
     pub pace: Arc<dyn screenit_tutor::Pace>,
 }
@@ -150,6 +156,9 @@ impl Default for Services {
             input: None,
             launcher: None,
             chat: None,
+            stt: None,
+            tts: None,
+            tts_fallback: None,
             pace: Arc::new(screenit_tutor::RealPace),
         }
     }

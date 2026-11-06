@@ -33,6 +33,9 @@ pub(crate) struct PolishUi {
     padding: u8,
     corner: u8,
     running: bool,
+    fillers: bool,
+    captions: bool,
+    denoise: bool,
 }
 
 impl Default for PolishUi {
@@ -49,6 +52,9 @@ impl Default for PolishUi {
             padding: 0,
             corner: 0,
             running: false,
+            fillers: false,
+            captions: false,
+            denoise: false,
         }
     }
 }
@@ -76,6 +82,16 @@ fn polished_path(video: &str) -> String {
         .file_stem()
         .map_or_else(|| "video".to_string(), |s| s.to_string_lossy().into_owned());
     p.with_file_name(format!("{stem}-polished.mp4"))
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn speech_path(video: &str, suffix: &str) -> String {
+    let p = Path::new(video);
+    let stem = p
+        .file_stem()
+        .map_or_else(|| "video".to_string(), |s| s.to_string_lossy().into_owned());
+    p.with_file_name(format!("{stem}-{suffix}.mp4"))
         .to_string_lossy()
         .into_owned()
 }
@@ -147,6 +163,51 @@ impl UiApp {
                 render = true;
             }
         });
+        let mut speech: Option<(&str, Value, &str)> = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.label("Speech");
+            let p = &mut self.polish;
+            ui.checkbox(&mut p.fillers, "Cut filler words");
+            ui.checkbox(&mut p.captions, "Burn subtitles");
+            ui.checkbox(&mut p.denoise, "Reduce noise");
+            let idle = !p.running;
+            if ui
+                .add_enabled(idle, egui::Button::new("Transcribe"))
+                .on_hover_text("Needs a speech server in Settings > Speech")
+                .clicked()
+            {
+                speech = Some(("video.transcribe", json!({}), "Transcribing..."));
+            }
+            if ui
+                .add_enabled(idle, egui::Button::new("Cut silences"))
+                .clicked()
+            {
+                let v = json!({
+                    "fillers": p.fillers, "captions": p.captions, "denoise": p.denoise,
+                    "output": speech_path(&path, "trimmed"),
+                });
+                speech = Some(("video.silence.cut", v, "Cutting silences..."));
+            }
+            if ui
+                .add_enabled(idle, egui::Button::new("Burn subtitles"))
+                .clicked()
+            {
+                let v = json!({"output": speech_path(&path, "subtitled")});
+                speech = Some(("video.captions.burn", v, "Adding subtitles..."));
+            }
+            if ui.add_enabled(idle, egui::Button::new("Denoise")).clicked() {
+                let v = json!({"output": speech_path(&path, "clean")});
+                speech = Some(("video.audio.denoise", v, "Reducing noise..."));
+            }
+        });
+        if let Some((cmd, mut params, msg)) = speech {
+            params["path"] = json!(path);
+            if self.run(cmd, params).is_some() {
+                self.polish.running = true;
+                self.status = msg.into();
+            }
+        }
         if render {
             let mut params = self.polish.params();
             params["path"] = json!(path);
@@ -177,10 +238,14 @@ impl UiApp {
         self.polish.running = false;
         self.status = match st["error"].as_str() {
             Some(e) => format!("Polish failed: {e}"),
-            None => format!(
-                "Polished video saved: {}",
-                st["result"]["video"].as_str().unwrap_or("")
-            ),
+            None => match st["result"]["video"].as_str() {
+                Some(v) => format!("Video saved: {v}"),
+                None => format!(
+                    "Transcribed: {} words, {} subtitle lines",
+                    st["result"]["words"].as_u64().unwrap_or(0),
+                    st["result"]["lines"].as_u64().unwrap_or(0)
+                ),
+            },
         };
     }
 }

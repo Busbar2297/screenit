@@ -385,6 +385,45 @@ impl screenit_capture::LlmOcr for FakeLlm {
     }
 }
 
+/// Speech-to-text fake: always returns the given transcript (or fails when None).
+pub struct FakeStt(pub Option<screenit_record::speech::Transcript>);
+
+impl screenit_record::speech::SpeechToText for FakeStt {
+    fn transcribe(
+        &self,
+        _: &[u8],
+        _: Option<&str>,
+        _: &screenit_record::speech::SpeechConfig,
+    ) -> Result<screenit_record::speech::Transcript, screenit_record::RecordError> {
+        self.0
+            .clone()
+            .ok_or_else(|| screenit_record::RecordError::Platform("stt down".into()))
+    }
+}
+
+/// Text-to-speech fake: `samples_per_char` stereo frames of a quiet tone per character.
+pub struct FakeTts {
+    pub frames_per_char: usize,
+}
+
+impl screenit_record::speech::TextToSpeech for FakeTts {
+    fn speak(
+        &self,
+        text: &str,
+        _: &screenit_record::speech::SpeechConfig,
+    ) -> Result<Vec<i16>, screenit_record::RecordError> {
+        if text.trim().is_empty() {
+            return Err(screenit_record::RecordError::BadConfig(
+                "nothing to say".into(),
+            ));
+        }
+        let n = text.chars().count().saturating_mul(self.frames_per_char);
+        Ok((0..n * 2)
+            .map(|i| if (i / 2 / 24) % 2 == 0 { 3000 } else { -3000 })
+            .collect())
+    }
+}
+
 /// OCR fake that returns fixed lines regardless of the image.
 /// A language-model server that is down: every call fails.
 pub struct FakeLlmDown;

@@ -10,8 +10,10 @@
 )]
 
 pub mod audio;
+pub mod audio_fx;
 pub mod events;
 pub mod polish;
+pub mod speech;
 
 use screenit_geom::{Point, PointF, Rect, RectF};
 use screenit_raster::Raster;

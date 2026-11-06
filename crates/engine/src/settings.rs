@@ -91,6 +91,61 @@ impl Default for OcrSettings {
     }
 }
 
+/// Local speech servers (OpenAI-compatible `/v1/audio/...`). Empty URLs switch the feature off.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SpeechSettings {
+    /// Speech to text, e.g. `http://localhost:8000/v1` (whisper.cpp server, Speaches).
+    pub stt_url: String,
+    pub stt_model: String,
+    /// Spoken language hint (`en`, `ar`); empty to detect.
+    pub stt_language: String,
+    /// Text to speech server; empty means the built-in Windows voice.
+    pub tts_url: String,
+    pub tts_model: String,
+    pub tts_voice: String,
+    /// Stored in the settings file in plain text.
+    pub api_key: String,
+    pub timeout_secs: u32,
+}
+
+impl Default for SpeechSettings {
+    fn default() -> Self {
+        Self {
+            stt_url: String::new(),
+            stt_model: String::new(),
+            stt_language: String::new(),
+            tts_url: String::new(),
+            tts_model: String::new(),
+            tts_voice: String::new(),
+            api_key: String::new(),
+            timeout_secs: 300,
+        }
+    }
+}
+
+impl SpeechSettings {
+    pub fn stt_config(&self) -> screenit_record::speech::SpeechConfig {
+        screenit_record::speech::SpeechConfig {
+            url: self.stt_url.trim().to_string(),
+            model: self.stt_model.clone(),
+            voice: String::new(),
+            api_key: self.api_key.clone(),
+            timeout_secs: self.timeout_secs,
+        }
+    }
+
+    pub fn tts_config(&self) -> screenit_record::speech::SpeechConfig {
+        screenit_record::speech::SpeechConfig {
+            url: self.tts_url.trim().to_string(),
+            model: self.tts_model.clone(),
+            voice: self.tts_voice.clone(),
+            api_key: self.api_key.clone(),
+            timeout_secs: self.timeout_secs,
+        }
+    }
+}
+
 /// Hide secrets (passwords, keys and tokens in captures).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -146,6 +201,7 @@ pub struct Settings {
     pub recording: RecordingSettings,
     pub ocr: OcrSettings,
     pub privacy: PrivacySettings,
+    pub speech: SpeechSettings,
     pub updates: UpdateSettings,
     /// `None` means the built-in presets.
     pub presets: Option<Vec<Preset>>,
@@ -159,6 +215,7 @@ impl Default for Settings {
             recording: RecordingSettings::default(),
             ocr: OcrSettings::default(),
             privacy: PrivacySettings::default(),
+            speech: SpeechSettings::default(),
             updates: UpdateSettings::default(),
             presets: None,
         }
@@ -242,6 +299,9 @@ impl Settings {
         if !(1..=600).contains(&self.ocr.llm_timeout_secs) {
             self.ocr.llm_timeout_secs = d.ocr.llm_timeout_secs;
         }
+        if !(1..=1800).contains(&self.speech.timeout_secs) {
+            self.speech.timeout_secs = d.speech.timeout_secs;
+        }
         if self.updates.skipped_version.len() > 32 {
             self.updates.skipped_version.clear();
         }
@@ -272,6 +332,11 @@ impl Settings {
         if !(1..=600).contains(&self.ocr.llm_timeout_secs) {
             return Err(CommandError::Params(
                 "ocr.llm_timeout_secs must be 1..=600".into(),
+            ));
+        }
+        if !(1..=1800).contains(&self.speech.timeout_secs) {
+            return Err(CommandError::Params(
+                "speech.timeout_secs must be 1..=1800".into(),
             ));
         }
         if self.updates.skipped_version.len() > 32 {
@@ -403,6 +468,21 @@ mod tests {
         let d = std::env::temp_dir().join(format!("scit-settings-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d.join("settings.json")
+    }
+
+    #[test]
+    fn speech_settings_default_off_and_sanitize() {
+        let mut s = Settings::default();
+        assert!(s.speech.stt_url.is_empty() && s.speech.stt_config().url.is_empty());
+        s.speech.stt_url = "  http://x/v1 ".into();
+        assert_eq!(s.speech.stt_config().url, "http://x/v1");
+        s.speech.timeout_secs = 0;
+        assert!(s.validate().is_err());
+        s.sanitize();
+        assert_eq!(s.speech.timeout_secs, 300);
+        // an old file without the section still loads
+        let old: Settings = serde_json::from_str(r#"{"version":1}"#).unwrap();
+        assert_eq!(old.speech, SpeechSettings::default());
     }
 
     #[test]
