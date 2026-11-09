@@ -277,3 +277,6 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## 2026-11-06 - Tutorial screen can be maximized
 - Opening AI tutorial turned the maximize button off and forced a normal window, so the form was cut off on a laptop. The tutorial view now resizes and maximizes like the editor, opens fitted to the work area, and wraps the Plan / Rehearse / Record / Produce row.
+
+## 2026-11-09 - Search terms on the repo
+- README opens by naming screenIt as a Windows screen recorder, screenshot tool, and open-source Snagit alternative. GitHub About description, website (Releases), topics, and Discussions match those searches.

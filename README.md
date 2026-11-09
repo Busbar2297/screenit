@@ -2,20 +2,21 @@
 
 # screenIt
 
-**Fast, native screen capture, recording and annotation for Windows, written in pure Rust.**
+**Windows screen recorder and screen capture, written in pure Rust.**
 
 [![CI](https://github.com/Busbar2297/screenit/actions/workflows/ci.yml/badge.svg)](https://github.com/Busbar2297/screenit/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![Rust](https://img.shields.io/badge/rust-1.90%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)
 
-<img src="docs/images/capture-bar.png" alt="screenIt capture bar" width="760">
+<img src="docs/images/capture-bar.png" alt="screenIt screen capture bar" width="760">
 
 </div>
 
-screenIt is a small, single-binary capture tool: press **Print Screen**, drag over anything, mark it
-up and share it. It also records your screen to MP4 with microphone, system audio and webcam, and
-every action can be scripted from the command line or by an AI agent.
+screenIt is a small, single-binary screenshot and screen recorder for Windows, and an open-source
+Snagit alternative. Press **Print Screen**, drag over anything, mark it up and share it. It records
+to MP4 with microphone, system audio and webcam, and every action can be scripted from the command
+line or by an AI agent.
 
 No Electron, no webview, no ffmpeg: one native executable that uses the capture, video and OCR
 components already built into Windows.
