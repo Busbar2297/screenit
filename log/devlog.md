@@ -172,6 +172,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-11 - Release 0.2.17
+- Sign-in minimize went through ShowWindow, winit restored for a frame, and that frame was treated as the user opening the window. The next minimize parked at (-32000, -32000), so the taskbar button never showed anything. Ask the toolkit to minimize, at most three times, and only after the surface exists. Do not park off-screen until the user has opened the window once.
+
 ## 2026-11-11 - Release 0.2.16
 - Sign-in (`--minimized`) stays a normal minimized taskbar button. The off-screen tray park was what left the icon highlighted with no window to focus.
 

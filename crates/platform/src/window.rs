@@ -16,10 +16,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetShellWindow,
     GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
     IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED, SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED,
-    SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
-    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
-    WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW,
+    SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED,
+    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 /// Set when the window was maximized (or minimized from maximized) as it went to the tray,
@@ -151,26 +151,33 @@ pub fn enter_tray() {
     }
 }
 
-/// `--minimized` at sign-in: a normal taskbar button, not an off-screen window.
-/// Does not activate, so it does not cover the desktop.
-pub fn minimize_to_taskbar() {
-    let Some(h) = main_window() else { return };
-    // SAFETY: valid window handle owned by this process.
-    unsafe { ShowWindow(h, SW_SHOWMINNOACTIVE) };
-}
-
 /// Keep a sign-in minimize on the taskbar until the user restores it.
-/// Returns `(still_holding, have_seen_minimized, minimize_now)`.
-pub fn startup_minimize(holding: bool, seen: bool, is_minimized: bool) -> (bool, bool, bool) {
+///
+/// Returns `(still_holding, attempts, have_seen_iconic, ask_now)`.
+/// `ask_now` is for the toolkit's own minimize, at most three times, and only once `ready`
+/// (the GL surface exists). Minimizing through `ShowWindow` directly makes winit restore the
+/// window for a frame; that frame looks like the user opened it, and the next minimize is then
+/// parked off-screen, so the taskbar button never shows a window.
+pub fn startup_minimize(
+    holding: bool,
+    attempts: u8,
+    seen: bool,
+    iconic: bool,
+    ready: bool,
+) -> (bool, u8, bool, bool) {
     if !holding {
-        return (false, false, false);
+        return (false, attempts, false, false);
     }
-    if is_minimized {
-        (true, true, false)
-    } else if seen {
-        (false, false, false)
+    if iconic {
+        return (true, attempts, true, false);
+    }
+    if seen {
+        return (false, attempts, false, false);
+    }
+    if ready && attempts < 3 {
+        (true, attempts.saturating_add(1), false, true)
     } else {
-        (true, false, true)
+        (true, attempts, false, false)
     }
 }
 
@@ -523,6 +530,11 @@ pub fn set_client_size(width_pt: f32, height_pt: f32) -> bool {
     if !width_pt.is_finite() || !height_pt.is_finite() {
         return false;
     }
+    // A minimized window's client rect is the restored size. Resizing it from here
+    // writes that rect off-screen and the taskbar button comes back to nothing.
+    if is_iconic() {
+        return false;
+    }
     let Some(h) = main_window() else {
         return false;
     };
@@ -625,25 +637,39 @@ mod tests {
 
     #[test]
     fn sign_in_stays_minimized_on_the_taskbar_until_the_user_restores_it() {
+        // Surface not ready yet: hold, and do not minimize into a half-created window.
         assert_eq!(
-            super::startup_minimize(true, false, false),
-            (true, false, true)
+            super::startup_minimize(true, 0, false, false, false),
+            (true, 0, false, false)
         );
         assert_eq!(
-            super::startup_minimize(true, false, true),
-            (true, true, false)
+            super::startup_minimize(true, 0, false, false, true),
+            (true, 1, false, true)
         );
         assert_eq!(
-            super::startup_minimize(true, true, true),
-            (true, true, false)
+            super::startup_minimize(true, 2, false, false, true),
+            (true, 3, false, true)
+        );
+        // Three asks is enough. Hammering minimize is what hid the window.
+        assert_eq!(
+            super::startup_minimize(true, 3, false, false, true),
+            (true, 3, false, false)
         );
         assert_eq!(
-            super::startup_minimize(true, true, false),
-            (false, false, false)
+            super::startup_minimize(true, 1, false, true, true),
+            (true, 1, true, false)
         );
         assert_eq!(
-            super::startup_minimize(false, false, true),
-            (false, false, false)
+            super::startup_minimize(true, 1, true, true, true),
+            (true, 1, true, false)
+        );
+        assert_eq!(
+            super::startup_minimize(true, 1, true, false, true),
+            (false, 1, false, false)
+        );
+        assert_eq!(
+            super::startup_minimize(false, 0, false, true, true),
+            (false, 0, false, false)
         );
     }
 }

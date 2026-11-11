@@ -210,12 +210,18 @@ pub struct UiApp {
     /// The dark title bar has been applied to the native window.
     framed: bool,
     quit: bool,
-    /// Park in the tray on the first frame.
+    /// Sign-in asked to start minimized on the taskbar.
     start_hidden: bool,
     /// Sign-in minimize stays a taskbar button until the user restores the window.
     taskbar_min: bool,
+    /// How many times sign-in has asked the toolkit to minimize. More than this fights the restore.
+    taskbar_min_attempts: u8,
     /// The sign-in minimize has been seen, so the next restore is the user.
     taskbar_min_seen: bool,
+    /// Frames since the window existed. Minimize waits until the GL surface is up.
+    boot_frames: u8,
+    /// A minimize may park off-screen. False at sign-in until the user has opened the window.
+    allow_tray: bool,
     pub(crate) win_langs: Option<Vec<String>>,
     pub(crate) llm_models: Vec<String>,
     pub(crate) llm_msg: String,
@@ -300,7 +306,10 @@ impl UiApp {
             quit: false,
             start_hidden: false,
             taskbar_min: false,
+            taskbar_min_attempts: 0,
             taskbar_min_seen: false,
+            boot_frames: 0,
+            allow_tray: true,
             win_langs: None,
             llm_models: Vec::new(),
             llm_msg: String::new(),
@@ -422,7 +431,9 @@ impl UiApp {
     /// After a maximize or restore, tell the renderer the real client size and paint again.
     /// A window parked in the tray is off-screen on purpose and is left alone.
     fn follow_surface(&mut self, ctx: &egui::Context) {
-        if self.tray {
+        // A minimized window has no GL surface to resize. Replaying WM_SIZE here aborts in eframe.
+        if self.tray || screenit_platform::window::is_iconic() {
+            self.surface_pokes = 0;
             return;
         }
         let Some(now) = screenit_platform::window::client_state() else {
@@ -482,7 +493,9 @@ impl UiApp {
         self.tray = true;
         self.tray_background = false;
         self.taskbar_min = false;
+        self.taskbar_min_attempts = 0;
         self.taskbar_min_seen = false;
+        self.allow_tray = true;
         self.saved_pos = None;
     }
 
@@ -884,26 +897,36 @@ impl eframe::App for UiApp {
         if self.start_hidden {
             self.start_hidden = false;
             self.taskbar_min = true;
+            self.allow_tray = false;
         }
-        let (minimized, close) = ctx.input(|i| {
-            let v = i.viewport();
-            (v.minimized == Some(true), v.close_requested())
-        });
-        let (hold, seen, minimize_now) = screenit_platform::window::startup_minimize(
+        self.boot_frames = self.boot_frames.saturating_add(1);
+        let close = ctx.input(|i| i.viewport().close_requested());
+        let iconic = screenit_platform::window::is_iconic();
+        let (hold, attempts, seen, ask) = screenit_platform::window::startup_minimize(
             self.taskbar_min,
+            self.taskbar_min_attempts,
             self.taskbar_min_seen,
-            minimized,
+            iconic,
+            self.boot_frames >= 2,
         );
+        if self.taskbar_min && !hold {
+            self.allow_tray = true;
+        }
         self.taskbar_min = hold;
+        self.taskbar_min_attempts = attempts;
         self.taskbar_min_seen = seen;
-        if minimize_now {
-            screenit_platform::window::minimize_to_taskbar();
+        if ask {
+            // The toolkit minimizes, so its own flag matches Windows. A direct ShowWindow
+            // is undone on the next frame and the window is then parked off-screen.
+            self.surface_pokes = 0;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         if close && !self.quit {
             // Closing the window keeps screenIt running in the tray (Quit is in the tray menu).
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.send_to_tray();
-        } else if minimized
+        } else if iconic
+            && self.allow_tray
             && !self.tray
             && !self.taskbar_min
             && self.overlay.is_none()
@@ -1033,6 +1056,7 @@ impl eframe::App for UiApp {
 /// Start the UI. `setup` runs once the window exists and returns the event receiver, so hotkey,
 /// tray and control-channel threads can be given a `Waker`.
 /// start_hidden starts minimized on the taskbar (used for start-with-Windows).
+/// It stays a real taskbar button until the user opens it. It is not parked off-screen.
 pub fn run(
     session: Session,
     start_hidden: bool,

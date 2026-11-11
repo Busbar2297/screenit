@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.17
+
+- Starting minimized no longer hides the window off-screen. It stays on the taskbar, and clicking that button opens it.
+
 ## 0.2.16
 
 - Starting with Windows opens minimized on the taskbar. Clicking that button restores the window.
