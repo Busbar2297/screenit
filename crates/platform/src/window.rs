@@ -8,15 +8,18 @@ use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWin
 use windows_sys::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
 };
-use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+use windows_sys::Win32::System::Threading::{
+    AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
+};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowPlacement, GetWindowRect,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED,
-    SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
-    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow, WINDOWPLACEMENT,
-    WM_SIZE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    BringWindowToTop, EnumWindows, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetShellWindow,
+    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+    IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED, SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED,
+    SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW,
+    SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED,
+    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 /// Set when the window was maximized (or minimized from maximized) as it went to the tray,
@@ -197,6 +200,92 @@ pub fn set_app_user_model_id() {
     unsafe { SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
 }
 
+/// The parked window is the one the user is trying to use.
+///
+/// `saw_background` is true after the parked window has been out of the foreground once.
+/// Until then a window that started active (start with Windows) stays parked, so login does
+/// not pop it open. A taskbar click after that, or any move back onto a real monitor, shows it.
+pub fn should_surface(
+    iconic: bool,
+    foreground: bool,
+    on_screen: bool,
+    saw_background: bool,
+) -> bool {
+    if on_screen {
+        return true;
+    }
+    saw_background && (iconic || foreground)
+}
+
+/// The parked window is still the foreground window, so its taskbar button stays highlighted
+/// and a click only minimizes it. Give the foreground away once, then a later click can show it.
+pub fn should_yield(foreground: bool, on_screen: bool, saw_background: bool) -> bool {
+    foreground && !on_screen && !saw_background
+}
+
+/// winit writes `WS_EX_APPWINDOW` back whenever it syncs styles, which puts the taskbar button
+/// on a window that is parked off-screen. Put the tool-window style back when it was lost.
+pub fn repair_parked_style() {
+    let Some(h) = main_window() else {
+        return;
+    };
+    // SAFETY: valid window handle owned by this process.
+    let iconic = unsafe { IsIconic(h) != 0 };
+    if iconic {
+        return;
+    }
+    // SAFETY: style read on a window of this process.
+    let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) };
+    let tool = WS_EX_TOOLWINDOW as isize;
+    let app = WS_EX_APPWINDOW as isize;
+    if ex & tool != 0 && ex & app == 0 {
+        return;
+    }
+    set_toolwindow(h, true);
+    // SAFETY: valid window handle owned by this process. Shown, but not activated, so the
+    // event loop keeps running while the taskbar button stays gone.
+    unsafe {
+        SetWindowPos(
+            h,
+            std::ptr::null_mut(),
+            -32000,
+            -32000,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        ShowWindow(h, SW_SHOWNOACTIVATE);
+    }
+}
+
+/// The main window is minimized.
+pub fn is_iconic() -> bool {
+    // SAFETY: valid window handle owned by this process.
+    main_window().is_some_and(|h| unsafe { IsIconic(h) } != 0)
+}
+
+/// The main window is the foreground window.
+pub fn is_foreground() -> bool {
+    let Some(h) = main_window() else {
+        return false;
+    };
+    // SAFETY: both handles are compared only; neither is dereferenced.
+    unsafe { GetForegroundWindow() == h }
+}
+
+/// Drop the foreground so a parked window does not keep a highlighted taskbar button.
+pub fn yield_foreground() {
+    let Some(ours) = main_window() else {
+        return;
+    };
+    // SAFETY: `GetShellWindow` returns the desktop's shell window, or null.
+    let shell = unsafe { GetShellWindow() };
+    if shell.is_null() || unsafe { GetForegroundWindow() } != ours {
+        return;
+    }
+    focus_window(shell);
+}
+
 /// Bring the main window back from the tray to (x, y) with a taskbar button and focus.
 /// Returns whether it was maximized when it was parked, and has been maximized again.
 pub fn leave_tray(x: i32, y: i32) -> bool {
@@ -205,22 +294,58 @@ pub fn leave_tray(x: i32, y: i32) -> bool {
     };
     set_toolwindow(h, false);
     let zoomed = PARKED_ZOOMED.swap(false, Ordering::Relaxed);
-    // SAFETY: valid window handle owned by this process.
-    unsafe {
-        SetWindowPos(
-            h,
-            std::ptr::null_mut(),
-            x,
-            y,
-            0,
-            0,
-            SWP_NOSIZE | SWP_NOZORDER,
-        );
-        ShowWindow(h, if zoomed { SW_SHOWMAXIMIZED } else { SW_RESTORE });
-        SetForegroundWindow(h);
-    }
+    show_at(h, x, y, zoomed);
     apply_exe_icon();
     zoomed
+}
+
+/// Show `h` at `(x, y)`. `SetWindowPlacement` replaces the restored rect, so a window that was
+/// created at the off-screen park position does not snap back there on `SW_RESTORE`.
+fn show_at(h: HWND, x: i32, y: i32, zoomed: bool) {
+    let mut place = WINDOWPLACEMENT {
+        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+    // SAFETY: `place.length` is set and `h` is a window of this process.
+    unsafe {
+        if GetWindowPlacement(h, &mut place) == 0 {
+            place.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+        }
+        let width = (place.rcNormalPosition.right - place.rcNormalPosition.left).max(200);
+        let height = (place.rcNormalPosition.bottom - place.rcNormalPosition.top).max(120);
+        place.flags = if zoomed { WPF_RESTORETOMAXIMIZED } else { 0 };
+        place.showCmd = if zoomed {
+            SW_SHOWMAXIMIZED as u32
+        } else {
+            SW_SHOWNORMAL as u32
+        };
+        place.rcNormalPosition = RECT {
+            left: x,
+            top: y,
+            right: x.saturating_add(width),
+            bottom: y.saturating_add(height),
+        };
+        SetWindowPlacement(h, &place);
+    }
+    focus_window(h);
+}
+
+/// `SetForegroundWindow` fails for a process that started with Windows. Sharing input state with
+/// the current foreground thread is what makes the user's click actually focus this window.
+fn focus_window(h: HWND) {
+    // SAFETY: thread ids are used only for AttachThreadInput; `h` is a real window.
+    unsafe {
+        let fg = GetForegroundWindow();
+        let fg_thread = GetWindowThreadProcessId(fg, std::ptr::null_mut());
+        let me = GetCurrentThreadId();
+        let attached =
+            fg_thread != 0 && fg_thread != me && AttachThreadInput(fg_thread, me, 1) != 0;
+        SetForegroundWindow(h);
+        BringWindowToTop(h);
+        if attached {
+            AttachThreadInput(fg_thread, me, 0);
+        }
+    }
 }
 
 /// Client size in physical pixels, and whether the window is maximized.
@@ -460,5 +585,17 @@ mod tests {
         assert_eq!(restore_passes(false, true), 1);
         assert_eq!(restore_passes(true, false), 1);
         assert_eq!(restore_passes(false, false), 0);
+    }
+
+    #[test]
+    fn a_window_parked_at_startup_does_not_pop_open_until_the_user_asks() {
+        assert!(!super::should_surface(false, true, false, false));
+        assert!(super::should_yield(true, false, false));
+        assert!(!super::should_surface(true, false, false, false));
+        assert!(super::should_surface(false, true, false, true));
+        assert!(super::should_surface(true, false, false, true));
+        assert!(super::should_surface(false, false, true, false));
+        assert!(!super::should_yield(true, true, false));
+        assert!(!super::should_yield(false, false, true));
     }
 }

@@ -188,6 +188,8 @@ pub struct UiApp {
     pending: Option<(Instant, Pending, Option<String>)>,
     pub(crate) view: View,
     tray: bool,
+    /// The parked window has been out of the foreground once, so the next activation is the user.
+    tray_background: bool,
     lib_query: String,
     pub(crate) thumbs: HashMap<u64, Option<egui::TextureHandle>>,
     video: Option<library_panel::VideoPlayer>,
@@ -277,6 +279,7 @@ impl UiApp {
             pending: None,
             view: View::Compact,
             tray: false,
+            tray_background: false,
             lib_query: String::new(),
             thumbs: HashMap::new(),
             video: None,
@@ -471,6 +474,7 @@ impl UiApp {
         }
         screenit_platform::window::enter_tray();
         self.tray = true;
+        self.tray_background = false;
         self.saved_pos = None;
     }
 
@@ -482,6 +486,7 @@ impl UiApp {
             let (x, y) = self.home.unwrap_or((120, 80));
             let zoomed = screenit_platform::window::leave_tray(x, y);
             self.tray = false;
+            self.tray_background = false;
             self.saved_pos = None;
             zoomed
         } else {
@@ -496,6 +501,33 @@ impl UiApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         screenit_platform::window::activate_main();
         self.surface_pokes = 2;
+    }
+
+    /// A start-with-Windows window is created off-screen and can stay the foreground window,
+    /// so its taskbar button looks pressed and a click never brings it up. Yield once, then
+    /// show it when the user activates that button or the window is moved onto a monitor.
+    fn watch_parked_window(&mut self, ctx: &egui::Context) {
+        if !self.tray {
+            return;
+        }
+        let on_screen = screenit_platform::window::main_position().is_some_and(|p| p.0 > -30000);
+        let iconic = screenit_platform::window::is_iconic();
+        let foreground = screenit_platform::window::is_foreground();
+        if screenit_platform::window::should_surface(
+            iconic,
+            foreground,
+            on_screen,
+            self.tray_background,
+        ) {
+            self.restore_window(ctx);
+            return;
+        }
+        screenit_platform::window::repair_parked_style();
+        if screenit_platform::window::should_yield(foreground, on_screen, self.tray_background) {
+            screenit_platform::window::yield_foreground();
+        } else if !foreground && screenit_platform::window::main_position().is_some() {
+            self.tray_background = true;
+        }
     }
 
     /// After a capture ends without opening the editor (or is cancelled): stay out of the way.
@@ -875,6 +907,7 @@ impl eframe::App for UiApp {
         self.refresh_texture(ctx);
         self.follow_monitor_scale(ctx);
         self.sync_maximize_button(ctx);
+        self.watch_parked_window(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -999,7 +1032,11 @@ pub fn run(
             height: 256,
         });
     if start_hidden {
-        viewport = viewport.with_position([-32000.0, -32000.0]);
+        // Off-screen and inactive, so startup does not leave a highlighted taskbar button
+        // for a window the user cannot see.
+        viewport = viewport
+            .with_position([-32000.0, -32000.0])
+            .with_active(false);
     }
     let options = eframe::NativeOptions {
         viewport,

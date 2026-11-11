@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Maximizing and then minimizing no longer leaves the window stuck on the previous frame.
+- Starting with Windows no longer leaves the taskbar button highlighted on a window that cannot be focused. Clicking it opens the window.
 - Right-click a capture in the library to copy it. A video copies its first frame.
 
 ## 0.2.14
