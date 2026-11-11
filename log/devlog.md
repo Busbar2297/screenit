@@ -172,6 +172,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-11 - Release 0.2.16
+- Sign-in (`--minimized`) stays a normal minimized taskbar button. The off-screen tray park was what left the icon highlighted with no window to focus.
+
 ## 2026-11-11 - Release 0.2.15
 - Version bump so the installer replaces 0.2.14. Maximize no longer sticks on the old frame, a startup taskbar button can open the window, and library copy puts a video's first frame on the clipboard.
 

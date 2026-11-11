@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.16
+
+- Starting with Windows opens minimized on the taskbar. Clicking that button restores the window.
+
 ## 0.2.15
 
 - Maximizing and then minimizing no longer leaves the window stuck on the previous frame.

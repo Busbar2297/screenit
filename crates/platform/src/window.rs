@@ -16,10 +16,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetShellWindow,
     GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
     IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED, SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED,
-    SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW,
-    SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED,
-    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
+    WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 /// Set when the window was maximized (or minimized from maximized) as it went to the tray,
@@ -150,6 +150,30 @@ pub fn enter_tray() {
         ShowWindow(h, SW_SHOWNOACTIVATE);
     }
 }
+
+/// `--minimized` at sign-in: a normal taskbar button, not an off-screen window.
+/// Does not activate, so it does not cover the desktop.
+pub fn minimize_to_taskbar() {
+    let Some(h) = main_window() else { return };
+    // SAFETY: valid window handle owned by this process.
+    unsafe { ShowWindow(h, SW_SHOWMINNOACTIVE) };
+}
+
+/// Keep a sign-in minimize on the taskbar until the user restores it.
+/// Returns `(still_holding, have_seen_minimized, minimize_now)`.
+pub fn startup_minimize(holding: bool, seen: bool, is_minimized: bool) -> (bool, bool, bool) {
+    if !holding {
+        return (false, false, false);
+    }
+    if is_minimized {
+        (true, true, false)
+    } else if seen {
+        (false, false, false)
+    } else {
+        (true, false, true)
+    }
+}
+
 /// Put the executable's icon on the main window. A taskbar button created after a style change
 /// (tray hide/show) does not keep an icon that was only set earlier.
 pub fn apply_exe_icon() {
@@ -597,5 +621,29 @@ mod tests {
         assert!(super::should_surface(false, false, true, false));
         assert!(!super::should_yield(true, true, false));
         assert!(!super::should_yield(false, false, true));
+    }
+
+    #[test]
+    fn sign_in_stays_minimized_on_the_taskbar_until_the_user_restores_it() {
+        assert_eq!(
+            super::startup_minimize(true, false, false),
+            (true, false, true)
+        );
+        assert_eq!(
+            super::startup_minimize(true, false, true),
+            (true, true, false)
+        );
+        assert_eq!(
+            super::startup_minimize(true, true, true),
+            (true, true, false)
+        );
+        assert_eq!(
+            super::startup_minimize(true, true, false),
+            (false, false, false)
+        );
+        assert_eq!(
+            super::startup_minimize(false, false, true),
+            (false, false, false)
+        );
     }
 }
