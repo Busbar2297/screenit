@@ -239,6 +239,11 @@ pub struct UiApp {
     size_fixes: u8,
     /// A late native resize can land after those frames. One delayed pass corrects it.
     nudge_started: bool,
+    /// Last client size and maximized flag, so a maximize or restore can refresh the surface.
+    last_client: Option<(i32, i32, bool)>,
+    /// Extra `WM_SIZE`s after the window changes size. The first event often has a stale size,
+    /// which leaves the previous frame on screen.
+    surface_pokes: u8,
     /// Update the user chose to hide with Later (until the app restarts).
     pub(crate) update_hidden: Option<String>,
 }
@@ -306,6 +311,8 @@ impl UiApp {
             last_ppp: 0.0,
             size_fixes: 0,
             nudge_started: false,
+            last_client: None,
+            surface_pokes: 0,
             update_hidden: None,
         }
     }
@@ -400,6 +407,33 @@ impl UiApp {
             });
         }
         self.last_ppp = ppp;
+        self.follow_surface(ctx);
+    }
+
+    /// After a maximize or restore, tell the renderer the real client size and paint again.
+    /// A window parked in the tray is off-screen on purpose and is left alone.
+    fn follow_surface(&mut self, ctx: &egui::Context) {
+        if self.tray {
+            return;
+        }
+        let Some(now) = screenit_platform::window::client_state() else {
+            return;
+        };
+        if let Some((pw, ph, pz)) = self.last_client {
+            let (w, h, z) = now;
+            // A drag changes the size a little each frame. Maximize and restore jump,
+            // and that is when the old frame gets left on screen.
+            let jumped = z != pz || (w - pw).abs() > 80 || (h - ph).abs() > 80;
+            if jumped {
+                self.surface_pokes = 2;
+            }
+        }
+        self.last_client = Some(now);
+        if self.surface_pokes > 0 {
+            self.surface_pokes -= 1;
+            screenit_platform::window::replay_client_size();
+            ctx.request_repaint();
+        }
     }
 
     /// Open About, remembering the view the Back button returns to.
@@ -442,17 +476,26 @@ impl UiApp {
 
     /// Bring the window back (from the tray or from the off-screen capture position).
     fn restore_window(&mut self, ctx: &egui::Context) {
-        if self.tray {
+        // Coming back maximized must not be followed by "un-minimize": that restore
+        // undoes the maximize and leaves the old frame on screen.
+        let zoomed = if self.tray {
             let (x, y) = self.home.unwrap_or((120, 80));
-            screenit_platform::window::leave_tray(x, y);
+            let zoomed = screenit_platform::window::leave_tray(x, y);
             self.tray = false;
             self.saved_pos = None;
-        } else if let Some((x, y)) = self.saved_pos.take() {
-            screenit_platform::window::move_main(x, y);
+            zoomed
+        } else {
+            if let Some((x, y)) = self.saved_pos.take() {
+                screenit_platform::window::move_main(x, y);
+            }
+            false
+        };
+        if !zoomed {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         }
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         screenit_platform::window::activate_main();
+        self.surface_pokes = 2;
     }
 
     /// After a capture ends without opening the editor (or is cancelled): stay out of the way.
@@ -816,7 +859,8 @@ impl eframe::App for UiApp {
             && self.pending.is_none()
             && self.recording.is_none()
         {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            // Park off-screen. Do not also ask the toolkit to restore: that second restore
+            // brings a maximized window back on screen and the picture stays on the old frame.
             self.send_to_tray();
         }
         self.sync_language(ctx);

@@ -204,23 +204,29 @@ impl UiApp {
                                     self.thumbs.insert(id, tex);
                                 }
                             }
-                            let resp = self.card(ui, e, id);
-                            if resp.clicked() {
-                                action = Some(("open", id));
-                            }
-                            resp.context_menu(|ui| {
-                                if ui.button(screenit_i18n::t("lib.open")).clicked() {
+                            ui.push_id(id, |ui| {
+                                let resp = self.card(ui, e, id);
+                                if resp.clicked() {
                                     action = Some(("open", id));
-                                    ui.close();
                                 }
-                                if ui.button(screenit_i18n::t("lib.copy")).clicked() {
-                                    action = Some(("copy", id));
-                                    ui.close();
-                                }
-                                if ui.button(screenit_i18n::t("lib.remove")).clicked() {
-                                    action = Some(("delete", id));
-                                    ui.close();
-                                }
+                                // A stable id (push_id) so the right-click still belongs to this
+                                // card when the wrapped row shifts. The menu is a foreground
+                                // popup, so the scroll area does not clip it away.
+                                resp.context_menu(|ui| {
+                                    ui.set_min_width(180.0);
+                                    if ui.button(screenit_i18n::t("lib.copy")).clicked() {
+                                        action = Some(("copy", id));
+                                        ui.close();
+                                    }
+                                    if ui.button(screenit_i18n::t("lib.open")).clicked() {
+                                        action = Some(("open", id));
+                                        ui.close();
+                                    }
+                                    if ui.button(screenit_i18n::t("lib.remove")).clicked() {
+                                        action = Some(("delete", id));
+                                        ui.close();
+                                    }
+                                });
                             });
                         }
                     });

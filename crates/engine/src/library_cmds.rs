@@ -101,34 +101,44 @@ fn share(s: &mut Session, p: &Value) -> CmdResult {
             Ok(json!({"path": dest}))
         }
         "clipboard" => {
-            let clip = s
-                .services
-                .clipboard
-                .clone()
-                .ok_or_else(|| CommandError::Disabled("no clipboard available".into()))?;
-            if e.kind == Kind::Text {
-                let text = if e.body.is_empty() {
-                    std::fs::read_to_string(&e.path).map_err(CommandError::failed)?
-                } else {
-                    e.body.clone()
-                };
-                clip.set_text(&text).map_err(CommandError::Failed)?;
-                return Ok(json!({"copied": true}));
-            }
-            let img = if screenit_format::is_project(&e.path) {
-                let d = screenit_format::load(&e.path).map_err(CommandError::failed)?;
-                screenit_compose::flatten(&d)
-            } else {
-                let bytes = std::fs::read(&e.path).map_err(CommandError::failed)?;
-                screenit_codecs::decode(&bytes).map_err(CommandError::failed)?
-            };
-            clip.set_image(&img).map_err(CommandError::Failed)?;
+            copy_to_clipboard(s, &e)?;
             Ok(json!({"copied": true}))
         }
         o => Err(CommandError::Params(format!(
             "unknown mode `{o}` (file|clipboard)"
         ))),
     }
+}
+
+fn copy_to_clipboard(s: &Session, e: &screenit_library::Entry) -> Result<(), CommandError> {
+    let clip = s
+        .services
+        .clipboard
+        .clone()
+        .ok_or_else(|| CommandError::Disabled("no clipboard available".into()))?;
+    if e.kind == Kind::Text {
+        let text = if e.body.is_empty() {
+            std::fs::read_to_string(&e.path).map_err(CommandError::failed)?
+        } else {
+            e.body.clone()
+        };
+        return clip.set_text(&text).map_err(CommandError::Failed);
+    }
+    let img = if e.kind == Kind::Video {
+        s.services
+            .video
+            .clone()
+            .ok_or_else(|| CommandError::Disabled("no video reader available".into()))?
+            .frame_at(&e.path, 0)
+            .map_err(CommandError::failed)?
+    } else if screenit_format::is_project(&e.path) {
+        let d = screenit_format::load(&e.path).map_err(CommandError::failed)?;
+        screenit_compose::flatten(&d)
+    } else {
+        let bytes = std::fs::read(&e.path).map_err(CommandError::failed)?;
+        screenit_codecs::decode(&bytes).map_err(CommandError::failed)?
+    };
+    clip.set_image(&img).map_err(CommandError::Failed)
 }
 
 fn open_dir(s: &mut Session, p: &Value) -> CmdResult {

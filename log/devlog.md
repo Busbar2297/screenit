@@ -172,6 +172,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-11 - Maximize stall and library copy
+- Minimizing a maximized window restores it maximized (WPF_RESTORETOMAXIMIZED), so one SW_RESTORE could not move it off-screen and the GL surface kept the old frame. Two restores, then replay WM_SIZE after a real size jump.
+- Library cards keep a stable id so the right-click menu (Copy first) is not lost in the wrapped row. Copying a video puts its first frame on the clipboard.
+
 ## 2026-11-04 - Release 0.2.12
 - Version bump for automatic updates from GitHub Releases.
 

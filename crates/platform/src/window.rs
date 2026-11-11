@@ -2,6 +2,7 @@
 //! be processed), so "tray mode" keeps the window alive off-screen and removes its taskbar button.
 
 use std::os::windows::process::CommandExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -10,12 +11,17 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsZoomed, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
-    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
-    WS_EX_TOOLWINDOW,
+    EnumWindows, GWL_EXSTYLE, GetClientRect, GetWindowLongPtrW, GetWindowPlacement, GetWindowRect,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED,
+    SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPos, ShowWindow, WINDOWPLACEMENT,
+    WM_SIZE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
+
+/// Set when the window was maximized (or minimized from maximized) as it went to the tray,
+/// so showing it again can fill the screen instead of coming back at the restored size.
+static PARKED_ZOOMED: AtomicBool = AtomicBool::new(false);
 
 struct Find<'a> {
     title: &'a str,
@@ -87,12 +93,45 @@ fn set_toolwindow(h: HWND, tool: bool) {
     }
 }
 
+/// How many `SW_RESTORE`s it takes before the window is a normal, movable window.
+///
+/// Minimizing a maximized window sets `WPF_RESTORETOMAXIMIZED`, so the first restore comes back
+/// maximized and `SetWindowPos` cannot move it. A second restore, once it is maximized and
+/// visible, returns it to its normal size.
+pub fn restore_passes(iconic: bool, zoomed: bool) -> u8 {
+    match (iconic, zoomed) {
+        (true, true) => 2,
+        (true, false) | (false, true) => 1,
+        (false, false) => 0,
+    }
+}
+
+/// The placement says the window is maximized, or should return to maximized when restored.
+fn placement_wants_zoom(h: HWND) -> bool {
+    let mut place = WINDOWPLACEMENT {
+        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+    // SAFETY: `place.length` is set and `h` is a window of this process.
+    if unsafe { GetWindowPlacement(h, &mut place) } == 0 {
+        return false;
+    }
+    place.showCmd == SW_SHOWMAXIMIZED as u32 || place.flags & WPF_RESTORETOMAXIMIZED != 0
+}
+
 /// Send the main window to the tray: no taskbar button, parked off-screen but still rendering.
 pub fn enter_tray() {
     let Some(h) = main_window() else { return };
-    // Restore first: positioning a minimised window would only change its remembered position.
-    // SAFETY: valid window handle owned by this process.
-    unsafe { ShowWindow(h, SW_RESTORE) };
+    // SAFETY: valid window handle owned by this process. `IsIconic` is false once restored.
+    let iconic = unsafe { IsIconic(h) != 0 };
+    let zoomed = is_maximized() || placement_wants_zoom(h);
+    PARKED_ZOOMED.store(zoomed, Ordering::Relaxed);
+    // A minimized maximized window comes back maximized from one restore, and a maximized
+    // window ignores a move. Restore until it is a normal window, then move that.
+    for _ in 0..restore_passes(iconic, zoomed) {
+        // SAFETY: valid window handle owned by this process.
+        unsafe { ShowWindow(h, SW_RESTORE) };
+    }
     set_toolwindow(h, true);
     // SAFETY: as above.
     unsafe {
@@ -159,9 +198,13 @@ pub fn set_app_user_model_id() {
 }
 
 /// Bring the main window back from the tray to (x, y) with a taskbar button and focus.
-pub fn leave_tray(x: i32, y: i32) {
-    let Some(h) = main_window() else { return };
+/// Returns whether it was maximized when it was parked, and has been maximized again.
+pub fn leave_tray(x: i32, y: i32) -> bool {
+    let Some(h) = main_window() else {
+        return false;
+    };
     set_toolwindow(h, false);
+    let zoomed = PARKED_ZOOMED.swap(false, Ordering::Relaxed);
     // SAFETY: valid window handle owned by this process.
     unsafe {
         SetWindowPos(
@@ -173,10 +216,46 @@ pub fn leave_tray(x: i32, y: i32) {
             0,
             SWP_NOSIZE | SWP_NOZORDER,
         );
-        ShowWindow(h, SW_RESTORE);
+        ShowWindow(h, if zoomed { SW_SHOWMAXIMIZED } else { SW_RESTORE });
         SetForegroundWindow(h);
     }
     apply_exe_icon();
+    zoomed
+}
+
+/// Client size in physical pixels, and whether the window is maximized.
+pub fn client_state() -> Option<(i32, i32, bool)> {
+    let h = main_window()?;
+    let mut client = RECT::default();
+    // SAFETY: valid window handle owned by this process; `client` is writable.
+    if unsafe { GetClientRect(h, &mut client) } == 0 || client.right <= 0 || client.bottom <= 0 {
+        return None;
+    }
+    // SAFETY: valid window handle owned by this process.
+    let zoomed = unsafe { IsZoomed(h) != 0 };
+    Some((client.right, client.bottom, zoomed))
+}
+
+/// Deliver `WM_SIZE` for the real client area. The resize event Windows sent while maximizing
+/// or restoring can carry a stale size, so the GL surface keeps the previous frame.
+pub fn replay_client_size() {
+    let Some((w, h, zoomed)) = client_state() else {
+        return;
+    };
+    let Some(hwnd) = main_window() else {
+        return;
+    };
+    let lp = ((h as u32) << 16) | (w as u32 & 0xffff);
+    let wp = if zoomed {
+        SIZE_MAXIMIZED
+    } else {
+        SIZE_RESTORED
+    };
+    // SAFETY: `hwnd` is our window. The message is handled by this process's window procedure
+    // and only reports the size `GetClientRect` just returned.
+    unsafe {
+        SendMessageW(hwnd, WM_SIZE, wp as usize, lp as isize);
+    }
 }
 
 /// Restore the main window if minimised and bring it to the foreground.
@@ -369,4 +448,17 @@ pub fn release_print_screen_from_snipping() {
         ])
         .creation_flags(CREATE_NO_WINDOW)
         .status();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restore_passes;
+
+    #[test]
+    fn a_minimized_maximized_window_needs_two_restores_before_it_can_move() {
+        assert_eq!(restore_passes(true, true), 2);
+        assert_eq!(restore_passes(false, true), 1);
+        assert_eq!(restore_passes(true, false), 1);
+        assert_eq!(restore_passes(false, false), 0);
+    }
 }

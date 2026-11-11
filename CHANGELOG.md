@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Maximizing and then minimizing no longer leaves the window stuck on the previous frame.
+- Right-click a capture in the library to copy it. A video copies its first frame.
+
 ## 0.2.14
 
 - AI tutorial. Describe a task and screenIt plans it on the live app, asks when it is stuck, records the screen, and puts that video in the library.
