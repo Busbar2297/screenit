@@ -2205,7 +2205,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screenit"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-automation",
  "screenit-capture",
@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-algo"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "rayon",
  "screenit-geom",
@@ -2229,7 +2229,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-automation"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-engine",
  "serde_json",
@@ -2237,7 +2237,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-capture"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-algo",
  "screenit-doc",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-cli"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "clap",
  "screenit-engine",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-codecs"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "image",
  "screenit-raster",
@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-compose"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-algo",
  "screenit-doc",
@@ -2279,7 +2279,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-doc"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-geom",
  "screenit-raster",
@@ -2290,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-engine"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "chrono",
  "screenit-algo",
@@ -2315,7 +2315,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-fixture"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-capture",
  "screenit-doc",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-format"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-codecs",
  "screenit-compose",
@@ -2346,14 +2346,14 @@ dependencies = [
 
 [[package]]
 name = "screenit-geom"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "screenit-i18n"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "ar-reshaper",
  "toml 0.9.12+spec-1.1.0",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-library"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "chrono",
  "serde",
@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-llm"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-algo",
  "screenit-capture",
@@ -2386,7 +2386,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-ops"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-doc",
  "screenit-geom",
@@ -2396,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-platform"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-capture",
  "screenit-codecs",
@@ -2414,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-raster"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-geom",
  "serde",
@@ -2423,7 +2423,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-record"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "nnnoiseless",
  "screenit-geom",
@@ -2435,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-testkit"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-capture",
  "screenit-codecs",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-tutor"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-geom",
  "serde",
@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-ui-egui"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "chrono",
  "eframe",
@@ -2481,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-update"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "serde",
  "serde_json",
@@ -2490,7 +2490,7 @@ dependencies = [
 
 [[package]]
 name = "screenit-vector"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "ab_glyph",
  "screenit-doc",
@@ -3594,7 +3594,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.2.14"
+version = "0.2.15"
 dependencies = [
  "screenit-update",
  "serde",

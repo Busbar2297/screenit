@@ -172,6 +172,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-11 - Release 0.2.15
+- Version bump so the installer replaces 0.2.14. Maximize no longer sticks on the old frame, a startup taskbar button can open the window, and library copy puts a video's first frame on the clipboard.
+
 ## 2026-11-11 - Startup taskbar button stuck
 - winit writes WS_EX_APPWINDOW back after tray parking, so a window created off-screen at login keeps a highlighted taskbar button and SW_RESTORE snaps to (-32000, -32000). Repair the tool style, yield the foreground once, and show at a real position when the user clicks that button.
 
