@@ -16,10 +16,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetShellWindow,
     GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
     IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED, SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED,
-    SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW,
-    SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED,
-    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
+    WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 /// Set when the window was maximized (or minimized from maximized) as it went to the tray,
@@ -151,34 +151,68 @@ pub fn enter_tray() {
     }
 }
 
+/// Minimize without activating. `SW_MINIMIZE` is ignored for a window that has never been
+/// focused, which is every window started from the Run key. The taskbar button then stays
+/// pressed until the user focuses it and focuses something else.
+pub fn minimize_inactive() {
+    let Some(h) = main_window() else { return };
+    // SAFETY: valid window handle owned by this process.
+    unsafe { ShowWindow(h, SW_SHOWMINNOACTIVE) };
+}
+
+/// Bring one of our windows to the front. `SetForegroundWindow` alone fails for a process that
+/// started with Windows and has never been focused, so the capture overlay never appears.
+pub fn focus_titled(title: &str) -> bool {
+    let Some(h) = own_window(title) else {
+        return false;
+    };
+    focus_window(h);
+    true
+}
+
 /// Keep a sign-in minimize on the taskbar until the user restores it.
 ///
-/// Returns `(still_holding, attempts, have_seen_iconic, ask_now)`.
-/// `ask_now` is for the toolkit's own minimize, at most three times, and only once `ready`
-/// (the GL surface exists). Minimizing through `ShowWindow` directly makes winit restore the
-/// window for a frame; that frame looks like the user opened it, and the next minimize is then
-/// parked off-screen, so the taskbar button never shows a window.
+/// Returns `(still_holding, have_seen_iconic, grace, ask_now, yield_foreground)`.
+/// `ask_now` stays true until Windows reports the window iconic, including after a restore that
+/// did not focus the window (the toolkit undoing the minimize). A focused restore is the user.
+/// `grace` counts frames after an unfocused restore before asking again, so a taskbar click can
+/// land. `yield_foreground` is the first iconic frame that is still the foreground window: that
+/// is the pressed taskbar button.
 pub fn startup_minimize(
     holding: bool,
-    attempts: u8,
     seen: bool,
+    grace: u8,
     iconic: bool,
+    foreground: bool,
     ready: bool,
-) -> (bool, u8, bool, bool) {
+) -> (bool, bool, u8, bool, bool) {
     if !holding {
-        return (false, attempts, false, false);
+        return (false, false, 0, false, false);
     }
     if iconic {
-        return (true, attempts, true, false);
+        let yield_now = !seen && foreground;
+        return (true, true, 0, false, yield_now);
     }
     if seen {
-        return (false, attempts, false, false);
+        if foreground {
+            return (false, false, 0, false, false);
+        }
+        // Wait so a taskbar click can take focus, then minimize again. Reset the wait
+        // after each ask so a toolkit restore cannot spin the frame loop.
+        if grace < 12 {
+            return (true, true, grace.saturating_add(1), false, false);
+        }
+        return (true, true, 0, true, false);
     }
-    if ready && attempts < 3 {
-        (true, attempts.saturating_add(1), false, true)
-    } else {
-        (true, attempts, false, false)
+    if !ready {
+        return (true, false, 0, false, false);
     }
+    // Not iconic yet. Ask once every 8 frames, and stop after a few tries.
+    if grace >= 64 {
+        return (true, false, grace, false, false);
+    }
+    let ask = grace.is_multiple_of(8);
+    (true, false, grace.saturating_add(1), ask, false)
 }
 
 /// Put the executable's icon on the main window. A taskbar button created after a style change
@@ -639,37 +673,44 @@ mod tests {
     fn sign_in_stays_minimized_on_the_taskbar_until_the_user_restores_it() {
         // Surface not ready yet: hold, and do not minimize into a half-created window.
         assert_eq!(
-            super::startup_minimize(true, 0, false, false, false),
-            (true, 0, false, false)
+            super::startup_minimize(true, false, 0, false, false, false),
+            (true, false, 0, false, false)
+        );
+        // Ready and never focused: ask, then wait before asking again.
+        assert_eq!(
+            super::startup_minimize(true, false, 0, false, false, true),
+            (true, false, 1, true, false)
         );
         assert_eq!(
-            super::startup_minimize(true, 0, false, false, true),
-            (true, 1, false, true)
+            super::startup_minimize(true, false, 1, false, false, true),
+            (true, false, 2, false, false)
+        );
+        // Iconic and still foreground: yield so the taskbar button is not left pressed.
+        assert_eq!(
+            super::startup_minimize(true, false, 0, true, true, true),
+            (true, true, 0, false, true)
         );
         assert_eq!(
-            super::startup_minimize(true, 2, false, false, true),
-            (true, 3, false, true)
+            super::startup_minimize(true, true, 0, true, false, true),
+            (true, true, 0, false, false)
         );
-        // Three asks is enough. Hammering minimize is what hid the window.
+        // Unfocused restore: wait, then ask again. Do not treat it as the user.
         assert_eq!(
-            super::startup_minimize(true, 3, false, false, true),
-            (true, 3, false, false)
-        );
-        assert_eq!(
-            super::startup_minimize(true, 1, false, true, true),
-            (true, 1, true, false)
+            super::startup_minimize(true, true, 0, false, false, true),
+            (true, true, 1, false, false)
         );
         assert_eq!(
-            super::startup_minimize(true, 1, true, true, true),
-            (true, 1, true, false)
+            super::startup_minimize(true, true, 12, false, false, true),
+            (true, true, 0, true, false)
+        );
+        // Focused restore is the user opening the window.
+        assert_eq!(
+            super::startup_minimize(true, true, 0, false, true, true),
+            (false, false, 0, false, false)
         );
         assert_eq!(
-            super::startup_minimize(true, 1, true, false, true),
-            (false, 1, false, false)
-        );
-        assert_eq!(
-            super::startup_minimize(false, 0, false, true, true),
-            (false, 0, false, false)
+            super::startup_minimize(false, false, 0, true, true, true),
+            (false, false, 0, false, false)
         );
     }
 }

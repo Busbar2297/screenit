@@ -86,6 +86,10 @@ pub fn drive(app: &mut UiApp, ctx: &egui::Context) {
         },
     );
     ctx.request_repaint();
+    // The overlay is a new window. A process that started with Windows cannot raise it with
+    // an ordinary focus request until the user has clicked the app once, so Print Screen
+    // appears to do nothing. Share input with the foreground thread and bring it up.
+    screenit_platform::window::focus_titled("screenIt capture");
     match outcome {
         Outcome::None => app.overlay = Some(ov),
         Outcome::Cancel => {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.18
+
+- Starting with Windows minimizes onto the taskbar without a click, and Print Screen opens the capture screen before the window has ever been focused.
+
 ## 0.2.17
 
 - Starting minimized no longer hides the window off-screen. It stays on the taskbar, and clicking that button opens it.

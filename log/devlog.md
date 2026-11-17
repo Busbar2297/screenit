@@ -172,6 +172,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-17 - Release 0.2.18
+- Sign-in used SW_MINIMIZE, which Windows ignores until the window has been focused, so the taskbar button stayed pressed until a focus in and out. Minimize with SW_SHOWMINNOACTIVE and give the foreground to the shell once it sticks.
+- Print Screen created the capture window but could not raise it (SetForegroundWindow fails for a process started with Windows). Share input with the foreground thread. Do not move an already-minimized window; that saved the iconic position as the restore point.
+
 ## 2026-11-11 - Release 0.2.17
 - Sign-in minimize went through ShowWindow, winit restored for a frame, and that frame was treated as the user opening the window. The next minimize parked at (-32000, -32000), so the taskbar button never showed anything. Ask the toolkit to minimize, at most three times, and only after the surface exists. Do not park off-screen until the user has opened the window once.
 

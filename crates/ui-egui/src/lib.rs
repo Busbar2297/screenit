@@ -214,8 +214,8 @@ pub struct UiApp {
     start_hidden: bool,
     /// Sign-in minimize stays a taskbar button until the user restores the window.
     taskbar_min: bool,
-    /// How many times sign-in has asked the toolkit to minimize. More than this fights the restore.
-    taskbar_min_attempts: u8,
+    /// Frames since an unfocused restore, before sign-in minimizes again.
+    taskbar_min_grace: u8,
     /// The sign-in minimize has been seen, so the next restore is the user.
     taskbar_min_seen: bool,
     /// Frames since the window existed. Minimize waits until the GL surface is up.
@@ -306,7 +306,7 @@ impl UiApp {
             quit: false,
             start_hidden: false,
             taskbar_min: false,
-            taskbar_min_attempts: 0,
+            taskbar_min_grace: 0,
             taskbar_min_seen: false,
             boot_frames: 0,
             allow_tray: true,
@@ -361,8 +361,14 @@ impl UiApp {
         preset: Option<String>,
     ) {
         // Move the editor off-screen (minimised windows stop receiving frames) so it is not in the shot.
-        if self.saved_pos.is_none() && !self.tray {
-            self.saved_pos = screenit_platform::window::main_position();
+        // A window that is already minimized is not in the shot. Moving it would store the
+        // off-screen iconic position as the place to come back to.
+        if self.saved_pos.is_none()
+            && !self.tray
+            && !screenit_platform::window::is_iconic()
+            && let Some(p) = screenit_platform::window::main_position().filter(|p| p.0 > -30000)
+        {
+            self.saved_pos = Some(p);
             screenit_platform::window::move_main(-32000, -32000);
         }
         self.pending = Some((Instant::now() + Duration::from_millis(350), what, preset));
@@ -493,7 +499,7 @@ impl UiApp {
         self.tray = true;
         self.tray_background = false;
         self.taskbar_min = false;
-        self.taskbar_min_attempts = 0;
+        self.taskbar_min_grace = 0;
         self.taskbar_min_seen = false;
         self.allow_tray = true;
         self.saved_pos = None;
@@ -902,24 +908,32 @@ impl eframe::App for UiApp {
         self.boot_frames = self.boot_frames.saturating_add(1);
         let close = ctx.input(|i| i.viewport().close_requested());
         let iconic = screenit_platform::window::is_iconic();
-        let (hold, attempts, seen, ask) = screenit_platform::window::startup_minimize(
+        let (hold, seen, grace, ask, yield_now) = screenit_platform::window::startup_minimize(
             self.taskbar_min,
-            self.taskbar_min_attempts,
             self.taskbar_min_seen,
+            self.taskbar_min_grace,
             iconic,
+            screenit_platform::window::is_foreground(),
             self.boot_frames >= 2,
         );
         if self.taskbar_min && !hold {
             self.allow_tray = true;
         }
         self.taskbar_min = hold;
-        self.taskbar_min_attempts = attempts;
+        self.taskbar_min_grace = grace;
         self.taskbar_min_seen = seen;
         if ask {
-            // The toolkit minimizes, so its own flag matches Windows. A direct ShowWindow
-            // is undone on the next frame and the window is then parked off-screen.
+            // The toolkit flag stops winit restoring the window. SW_SHOWMINNOACTIVE is what
+            // actually minimizes a window that started with Windows and has never been focused.
             self.surface_pokes = 0;
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            screenit_platform::window::minimize_inactive();
+        }
+        if yield_now {
+            screenit_platform::window::yield_foreground();
+        }
+        if self.taskbar_min && !iconic && (seen || grace < 64) {
+            ctx.request_repaint();
         }
         if close && !self.quit {
             // Closing the window keeps screenIt running in the tray (Quit is in the tray menu).
