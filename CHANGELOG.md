@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.34
+
+- The Library grid fills the window width and wraps into rows, so captures are no longer pushed off to the right.
+- The finished video opens in the editor as soon as **Create video** (or any render) completes.
+
 ## 0.2.33
 
 - One **Make video** panel in the editor: tick picture effects, sound (reduce noise, cut silences, remove um/uh) and subtitles together and press **Create video** to get everything in one new file. Transcription runs first automatically when needed. Replaces the separate Speech buttons and the Steps row.

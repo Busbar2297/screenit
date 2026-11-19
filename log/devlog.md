@@ -355,3 +355,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 - UI: Make video panel replaces Speech row + Steps row; one video.polish call with silence/fillers/captions/denoise plus picture params; transcribe first (pending params) when needed. Removed speech_steps.rs (the ordered-steps idea; the order is fixed because it only has one sensible order).
 - engine: video.polish accepts a recording with no event log when a sound edit is set (empty EventLog).
+
+
+## 2026-11-19 - Release 0.2.34
+
+- Library: explicit rows of floor((w+gap)/(220+gap)) cards instead of horizontal_wrapped, which stopped wrapping in the maximized window.
+- poll_polish opens the rendered video via open_video_file (shared with the Library open).

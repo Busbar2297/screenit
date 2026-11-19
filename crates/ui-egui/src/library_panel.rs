@@ -185,51 +185,58 @@ impl UiApp {
                         );
                     });
                     ui.add_space(4.0);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(14.0, 14.0);
-                        for e in items {
-                            let id = e["id"].as_u64().unwrap_or(0);
-                            if !self.thumbs.contains_key(&id) {
-                                if budget == 0 {
-                                    ctx.request_repaint();
-                                } else {
-                                    budget -= 1;
-                                    let tex = load_thumb(self, e).map(|ci| {
-                                        ctx.load_texture(
-                                            format!("thumb-{id}"),
-                                            ci,
-                                            egui::TextureOptions::LINEAR,
-                                        )
-                                    });
-                                    self.thumbs.insert(id, tex);
-                                }
-                            }
-                            ui.push_id(id, |ui| {
-                                let resp = self.card(ui, e, id);
-                                if resp.clicked() {
-                                    action = Some(("open", id));
-                                }
-                                // A stable id (push_id) so the right-click still belongs to this
-                                // card when the wrapped row shifts. The menu is a foreground
-                                // popup, so the scroll area does not clip it away.
-                                resp.context_menu(|ui| {
-                                    ui.set_min_width(180.0);
-                                    if ui.button(screenit_i18n::t("lib.copy")).clicked() {
-                                        action = Some(("copy", id));
-                                        ui.close();
+                    // Whole rows that fit the width, so cards never run off to the right.
+                    let gap = 14.0;
+                    let cols =
+                        (((ui.available_width() + gap) / (THUMB_W + gap)).floor() as usize).max(1);
+                    for row in items.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+                            for e in row.iter().copied() {
+                                let id = e["id"].as_u64().unwrap_or(0);
+                                if !self.thumbs.contains_key(&id) {
+                                    if budget == 0 {
+                                        ctx.request_repaint();
+                                    } else {
+                                        budget -= 1;
+                                        let tex = load_thumb(self, e).map(|ci| {
+                                            ctx.load_texture(
+                                                format!("thumb-{id}"),
+                                                ci,
+                                                egui::TextureOptions::LINEAR,
+                                            )
+                                        });
+                                        self.thumbs.insert(id, tex);
                                     }
-                                    if ui.button(screenit_i18n::t("lib.open")).clicked() {
+                                }
+                                ui.push_id(id, |ui| {
+                                    let resp = self.card(ui, e, id);
+                                    if resp.clicked() {
                                         action = Some(("open", id));
-                                        ui.close();
                                     }
-                                    if ui.button(screenit_i18n::t("lib.remove")).clicked() {
-                                        action = Some(("delete", id));
-                                        ui.close();
-                                    }
+                                    // A stable id (push_id) so the right-click still belongs to this
+                                    // card when the wrapped row shifts. The menu is a foreground
+                                    // popup, so the scroll area does not clip it away.
+                                    resp.context_menu(|ui| {
+                                        ui.set_min_width(180.0);
+                                        if ui.button(screenit_i18n::t("lib.copy")).clicked() {
+                                            action = Some(("copy", id));
+                                            ui.close();
+                                        }
+                                        if ui.button(screenit_i18n::t("lib.open")).clicked() {
+                                            action = Some(("open", id));
+                                            ui.close();
+                                        }
+                                        if ui.button(screenit_i18n::t("lib.remove")).clicked() {
+                                            action = Some(("delete", id));
+                                            ui.close();
+                                        }
+                                    });
                                 });
-                            });
-                        }
-                    });
+                            }
+                        });
+                        ui.add_space(gap);
+                    }
                 }
             });
         if let Some((what, id)) = action {
@@ -251,6 +258,19 @@ impl UiApp {
         }
     }
 
+    /// Load a video file into the editor and its transport bar.
+    pub(crate) fn open_video_file(&mut self, path: &str) {
+        match self.session.dispatch("video.probe", &json!({"path": path})) {
+            Ok(info) => {
+                let d = info["duration_ms"].as_u64().unwrap_or(0);
+                self.video = Some(VideoPlayer::new(path.to_string(), d));
+                self.view = View::Editor;
+                self.status = "Video loaded: use the transport bar to scrub or play".into();
+            }
+            Err(err) => self.status = format!("video.probe: {err}"),
+        }
+    }
+
     fn open_library_entry(&mut self, id: u64, entries: &[Value], ctx: &egui::Context) {
         let Some(e) = entries.iter().find(|e| e["id"].as_u64() == Some(id)) else {
             return;
@@ -266,15 +286,7 @@ impl UiApp {
         self.reading = None;
         if e["kind"].as_str() == Some("video") {
             let path = e["path"].as_str().unwrap_or_default().to_string();
-            match self.session.dispatch("video.probe", &json!({"path": path})) {
-                Ok(info) => {
-                    let d = info["duration_ms"].as_u64().unwrap_or(0);
-                    self.video = Some(VideoPlayer::new(path, d));
-                    self.view = View::Editor;
-                    self.status = "Video loaded: use the transport bar to scrub or play".into();
-                }
-                Err(err) => self.status = format!("video.probe: {err}"),
-            }
+            self.open_video_file(&path);
         } else if self.run("library.open", json!({"id": id})).is_some() {
             self.video = None;
             self.fit = true;

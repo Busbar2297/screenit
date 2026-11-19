@@ -388,7 +388,12 @@ impl UiApp {
         self.status = match st["error"].as_str() {
             Some(e) => format!("Polish failed: {e}"),
             None => match st["result"]["video"].as_str() {
-                Some(v) => format!("Video saved: {v}"),
+                Some(v) => {
+                    // Show the result straight away; the original stays in the Library.
+                    let v = v.to_string();
+                    self.open_video_file(&v);
+                    format!("Video saved and opened: {v}")
+                }
                 None => {
                     let r = &st["result"];
                     if let Some(c) = r["chapters"].as_array() {
