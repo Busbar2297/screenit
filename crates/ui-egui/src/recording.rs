@@ -64,6 +64,10 @@ pub(crate) struct RecUi {
     bar_pos: Option<(i32, i32)>,
     /// The user dragged the bar, so it stays where they put it.
     bar_user: bool,
+    /// Fixed toolkit position; all later moves are native so mixed scaling cannot fight them.
+    bar_init: Option<(i32, i32)>,
+    /// Dragging: pointer and bar position (physical px) when the drag began.
+    drag: Option<((i32, i32), (i32, i32))>,
     /// Small bar (timer and Stop only) that stays out of the way of the mouse.
     collapsed: bool,
     opts: RecOptions,
@@ -83,7 +87,8 @@ enum Action {
     Stop,
     Cancel,
     Start,
-    Moved,
+    DragStart,
+    DragEnd,
     ToggleCollapse,
 }
 
@@ -104,6 +109,22 @@ pub(crate) fn toolbar_pos(region: IRect, screen: IRect, w: i32, h: i32) -> (i32,
         (bottom - h - 2 * gap).max(screen.y)
     };
     (x, y)
+}
+
+/// Where the bar goes this frame (physical px): following the pointer while dragged, where the
+/// user left it, or next to the recording area.
+fn bar_target(r: &mut RecUi, bw: i32, bh: i32) -> (i32, i32) {
+    if r.drag.is_some() && !screenit_platform::input::left_button_down() {
+        r.drag = None;
+    }
+    let dragged = r.drag.and_then(|(c0, o0)| {
+        screenit_platform::window::cursor_pos().map(|c| (o0.0 + c.0 - c0.0, o0.1 + c.1 - c0.1))
+    });
+    match (dragged, r.bar_pos) {
+        (Some(p), _) => p,
+        (None, Some(p)) if r.bar_user => p,
+        _ => toolbar_pos(r.region, r.bar_screen, bw, bh),
+    }
 }
 
 fn fmt_time(ms: u64) -> String {
@@ -165,6 +186,8 @@ impl UiApp {
             bar_screen,
             bar_pos: None,
             bar_user: false,
+            bar_init: None,
+            drag: None,
             collapsed: false,
             opts: self.rec_opts,
             output: default_output("mp4").replace("capture-", "recording-"),
@@ -324,18 +347,15 @@ impl UiApp {
         };
         let (bw, bh) = screenit_platform::window::size_of_titled(TOOLBAR_TITLE)
             .unwrap_or(((w * ppp) as i32, (BAR_H * ppp) as i32));
-        let (px, py) = match r.bar_pos {
-            Some(p) if r.bar_user => p,
-            _ => toolbar_pos(r.region, r.bar_screen, bw, bh),
-        };
-        r.bar_pos = Some((px, py));
+        let (px, py) = bar_target(r, bw, bh);
+        let (ix, iy) = *r.bar_init.get_or_insert((px, py));
         let builder = ViewportBuilder::default()
             .with_title(TOOLBAR_TITLE)
             .with_decorations(false)
             .with_always_on_top()
             .with_taskbar(false)
             .with_resizable(false)
-            .with_position(Pos2::new(px as f32 / ppp, py as f32 / ppp))
+            .with_position(Pos2::new(ix as f32 / ppp, iy as f32 / ppp))
             .with_inner_size([w, BAR_H]);
         let mut action = Action::None;
         ctx.show_viewport_immediate(
@@ -348,18 +368,22 @@ impl UiApp {
             },
         );
         // Physical pixels, so mixed-scale monitors cannot push the bar out of view.
-        screenit_platform::window::place_bar(
-            TOOLBAR_TITLE,
-            w,
-            BAR_H,
-            (!r.bar_user).then_some((px, py)),
-        );
+        if let Some(at) = screenit_platform::window::place_bar(TOOLBAR_TITLE, w, BAR_H, (px, py)) {
+            r.bar_pos = Some(at);
+        }
         if !r.excluded {
             // SCREENIT_TOOLBAR_IN_CAPTURE=1 keeps the toolbar capturable (screenshots of the UI).
             r.excluded = std::env::var_os("SCREENIT_TOOLBAR_IN_CAPTURE").is_some()
                 || screenit_platform::window::exclude_from_capture(TOOLBAR_TITLE);
         }
-        ctx.request_repaint_after(Duration::from_millis(if r.opts.webcam { 66 } else { 200 }));
+        let every = if r.drag.is_some() {
+            16
+        } else if r.opts.webcam {
+            66
+        } else {
+            200
+        };
+        ctx.request_repaint_after(Duration::from_millis(every));
         if let Some((x, y)) = moved {
             let _ = self
                 .session
@@ -373,9 +397,15 @@ impl UiApp {
             Action::Resume => {
                 self.run("record.resume", json!({}));
             }
-            Action::Moved => {
+            Action::DragStart => {
                 if let Some(r) = &mut self.recording {
                     r.bar_user = true;
+                    r.drag = screenit_platform::window::cursor_pos().zip(r.bar_pos);
+                }
+            }
+            Action::DragEnd => {
+                if let Some(r) = &mut self.recording {
+                    r.drag = None;
                 }
             }
             Action::ToggleCollapse => {
@@ -547,12 +577,11 @@ fn toolbar(ui: &mut egui::Ui, r: &RecUi) -> Action {
     );
     // Drag the toolbar by its background.
     let bg = ui.interact(full, ui.scope_id().with("rec-drag"), Sense::drag());
-    if bg.drag_started() {
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-    }
     let mut action = Action::None;
     if bg.drag_started() {
-        action = Action::Moved;
+        action = Action::DragStart;
+    } else if bg.drag_stopped() || (r.drag.is_some() && !ui.input(|i| i.pointer.primary_down())) {
+        action = Action::DragEnd;
     }
     let mut x = full.min.x + 12.0;
     let cy = full.center().y;

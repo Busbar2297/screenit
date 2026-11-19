@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.27
+
+- Dragging the recording bar follows the mouse smoothly across monitors, and the bar always stays inside a screen.
+
 ## 0.2.26
 
 - Recording waits for Start; the recording bar can be dragged, made small, and stays above the taskbar and in view across monitors.

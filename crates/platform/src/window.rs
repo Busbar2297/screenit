@@ -95,35 +95,57 @@ pub fn work_area_at(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
     Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
 }
 
-/// Size one of our windows to `w_pt` x `h_pt` logical points at the DPI of the monitor it is on,
-/// keep it on top, and optionally move it to physical pixel `pos`. Done natively because a toolkit
-/// size in points is re-applied on every DPI change, and the bar grew each time it crossed monitors.
-pub fn place_bar(title: &str, w_pt: f32, h_pt: f32, pos: Option<(i32, i32)>) -> bool {
-    let Some(h) = own_window(title) else {
-        return false;
-    };
-    // SAFETY: valid window handle owned by this process.
-    let dpi = unsafe { GetDpiForWindow(h) };
-    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
-    if !scale.is_finite() || !w_pt.is_finite() || !h_pt.is_finite() || !(0.5..=4.0).contains(&scale)
-    {
-        return false;
+/// Where the mouse pointer is, in physical pixels.
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    let mut p = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+    // SAFETY: `p` is writable.
+    (unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p) } != 0)
+        .then_some((p.x, p.y))
+}
+
+/// Put one of our windows at physical pixel `pos`, sized `w_pt` x `h_pt` logical points at the
+/// scale of the monitor under that spot, kept on top and inside that monitor's work area.
+/// Returns the position used. Sizing by the target monitor (not the window's current one) means a
+/// bar crossing monitors cannot flip between two sizes and walk away.
+pub fn place_bar(title: &str, w_pt: f32, h_pt: f32, pos: (i32, i32)) -> Option<(i32, i32)> {
+    use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    let h = own_window(title)?;
+    if !w_pt.is_finite() || !h_pt.is_finite() {
+        return None;
     }
+    let probe = windows_sys::Win32::Foundation::POINT {
+        x: pos.0.saturating_add(16),
+        y: pos.1.saturating_add(16),
+    };
+    // SAFETY: plain value argument; the nearest monitor is returned for any point.
+    let mon = unsafe { MonitorFromPoint(probe, MONITOR_DEFAULTTONEAREST) };
+    let (mut dx, mut dy) = (96u32, 96u32);
+    // SAFETY: valid monitor handle; both outputs are writable.
+    if unsafe { GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) } != 0 {
+        dx = 96;
+    }
+    let scale = (dx.max(1) as f32 / 96.0).clamp(0.5, 4.0);
     let w = ((w_pt * scale).round() as i32).clamp(1, 8192);
     let ht = ((h_pt * scale).round() as i32).clamp(1, 8192);
+    // SAFETY: MONITORINFO is plain data; all-zero is a valid value.
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    let (mut x, mut y) = pos;
+    // SAFETY: valid monitor handle; `info` is writable with its size set.
+    if unsafe { GetMonitorInfoW(mon, &mut info) } != 0 {
+        let a = info.rcWork;
+        x = x.clamp(a.left, (a.right - w).max(a.left));
+        y = y.clamp(a.top, (a.bottom - ht).max(a.top));
+    }
     let mut r = RECT::default();
     // SAFETY: valid window handle owned by this process; `r` is writable.
-    if unsafe { GetWindowRect(h, &mut r) } == 0 {
-        return false;
+    let ok = unsafe { GetWindowRect(h, &mut r) } != 0;
+    if ok && r.left == x && r.top == y && r.right - r.left == w && r.bottom - r.top == ht {
+        return Some((x, y));
     }
-    let same_size = r.right - r.left == w && r.bottom - r.top == ht;
-    let same_pos = pos.is_none_or(|(x, y)| r.left == x && r.top == y);
-    if same_size && same_pos {
-        return true;
-    }
-    let (x, y) = pos.unwrap_or((r.left, r.top));
     // SAFETY: valid window handle owned by this process; -1 is HWND_TOPMOST.
-    unsafe { SetWindowPos(h, -1isize as HWND, x, y, w, ht, SWP_NOACTIVATE) != 0 }
+    unsafe { SetWindowPos(h, -1isize as HWND, x, y, w, ht, SWP_NOACTIVATE) };
+    Some((x, y))
 }
 /// Outer size in physical pixels of one of our windows.
 pub fn size_of_titled(title: &str) -> Option<(i32, i32)> {

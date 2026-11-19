@@ -315,3 +315,8 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 - Recording bar: native placement and sizing (place_bar), work-area aware, draggable, collapsible. Still open: Print Screen from the tray shows no overlay.
 
+
+## 2026-11-19 - Release 0.2.27
+
+- Recording bar drag is our own (cursor delta, native SetWindowPos) instead of the OS caption drag; size uses the DPI of the monitor at the target spot and the position is clamped to its work area, so it no longer oscillates between DPIs or leaves the screen.
+
