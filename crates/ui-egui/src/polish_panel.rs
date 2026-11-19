@@ -2,7 +2,7 @@
 //! next to the recording. Everything goes through `video.events.get`, `video.polish` and the
 //! shared job status (`tutor.status`).
 
-use crate::UiApp;
+use crate::{UiApp, theme};
 use eframe::egui;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -96,6 +96,17 @@ fn speech_path(video: &str, suffix: &str) -> String {
         .into_owned()
 }
 
+/// The bar shares the widgets' default fill, so boxes and buttons vanished into it.
+fn contrast_widgets(ui: &mut egui::Ui) {
+    let w = &mut ui.visuals_mut().widgets;
+    w.inactive.bg_fill = theme::SURFACE3;
+    w.inactive.weak_bg_fill = theme::SURFACE3;
+    w.inactive.bg_stroke = egui::Stroke::new(1.0, theme::MUTED.gamma_multiply(0.7));
+    w.hovered.bg_fill = theme::BORDER;
+    w.hovered.weak_bg_fill = theme::BORDER;
+    w.hovered.bg_stroke = egui::Stroke::new(1.0, theme::ACCENT2);
+}
+
 fn summary(v: &Value) -> String {
     format!(
         "{} clicks, {} shortcuts",
@@ -125,27 +136,48 @@ impl UiApp {
         if self.polish.running {
             self.poll_polish(ctx);
         }
+        contrast_widgets(ui);
         let mut render = false;
+        let out_name = Path::new(&polished_path(&path))
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            ui.label("Auto-polish");
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.label(egui::RichText::new("Auto-polish").strong());
             let Some(info) = self.polish.events.clone() else {
                 ui.weak("No event log for this recording. Record with Auto-polish on.");
                 return;
             };
             ui.weak(info);
+            ui.separator();
             let p = &mut self.polish;
-            ui.checkbox(&mut p.zoom, "Zoom on clicks");
-            ui.checkbox(&mut p.trim, "Cut idle");
-            ui.checkbox(&mut p.typing, "Speed up typing");
-            ui.checkbox(&mut p.badges, "Shortcut badges");
+            ui.checkbox(&mut p.zoom, "Zoom on clicks").on_hover_text(
+                "Glide in on each click and back out, with a ring where you clicked",
+            );
+            ui.checkbox(&mut p.trim, "Cut idle")
+                .on_hover_text("Remove stretches where nothing happens");
+            ui.checkbox(&mut p.typing, "Speed up typing")
+                .on_hover_text("Play long typing runs at 3x");
+            ui.checkbox(&mut p.badges, "Shortcut badges")
+                .on_hover_text("Show keyboard shortcuts such as Ctrl+S on screen");
+        });
+        if self.polish.events.is_none() {
+            return;
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            let p = &mut self.polish;
+            ui.weak("Frame");
             egui::ComboBox::from_id_salt("polish_aspect")
                 .selected_text(ASPECTS[p.aspect.min(ASPECTS.len() - 1)].1)
                 .show_ui(ui, |ui| {
                     for (i, (_, label)) in ASPECTS.iter().enumerate() {
                         ui.selectable_value(&mut p.aspect, i, *label);
                     }
-                });
+                })
+                .response
+                .on_hover_text("Shape of the finished video");
             egui::ComboBox::from_id_salt("polish_cursor")
                 .selected_text(CURSORS[p.cursor.min(CURSORS.len() - 1)].1)
                 .show_ui(ui, |ui| {
@@ -153,11 +185,28 @@ impl UiApp {
                         ui.selectable_value(&mut p.cursor, i, *label);
                     }
                 });
-            ui.add(egui::Slider::new(&mut p.padding, 0..=25).text("Padding %"));
-            ui.add(egui::Slider::new(&mut p.corner, 0..=25).text("Corners %"));
-            let label = if p.running { "Rendering..." } else { "Render" };
+            ui.weak("Padding");
+            ui.add(egui::Slider::new(&mut p.padding, 0..=25).suffix(" %"))
+                .on_hover_text("Space around the picture");
+            ui.weak("Corners");
+            ui.add(egui::Slider::new(&mut p.corner, 0..=25).suffix(" %"))
+                .on_hover_text("Rounded corners on the picture");
+            ui.separator();
+            let label = if p.running {
+                "Rendering..."
+            } else {
+                "Render polished video"
+            };
+            let btn = egui::Button::new(
+                egui::RichText::new(label)
+                    .strong()
+                    .color(egui::Color32::WHITE),
+            )
+            .fill(theme::ACCENT)
+            .min_size(egui::vec2(0.0, 28.0));
             if ui
-                .add_enabled(!p.running, egui::Button::new(label))
+                .add_enabled(!p.running, btn)
+                .on_hover_text(format!("Saves {out_name} next to the recording"))
                 .clicked()
             {
                 render = true;
@@ -165,22 +214,21 @@ impl UiApp {
         });
         let mut speech: Option<(&str, Value, &str)> = None;
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            ui.label("Speech");
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.label(egui::RichText::new("Speech").strong())
+                .on_hover_text("Needs a speech server: Settings > Speech (see docs/audio.md)");
             let p = &mut self.polish;
-            ui.checkbox(&mut p.fillers, "Cut filler words");
-            ui.checkbox(&mut p.captions, "Burn subtitles");
-            ui.checkbox(&mut p.denoise, "Reduce noise");
             let idle = !p.running;
             if ui
                 .add_enabled(idle, egui::Button::new("Transcribe"))
-                .on_hover_text("Needs a speech server in Settings > Speech")
+                .on_hover_text("Write subtitles (.srt) from the speech")
                 .clicked()
             {
                 speech = Some(("video.transcribe", json!({}), "Transcribing..."));
             }
             if ui
                 .add_enabled(idle, egui::Button::new("Cut silences"))
+                .on_hover_text("Save a copy without the pauses, using the options on the right")
                 .clicked()
             {
                 let v = json!({
@@ -191,15 +239,25 @@ impl UiApp {
             }
             if ui
                 .add_enabled(idle, egui::Button::new("Burn subtitles"))
+                .on_hover_text("Save a copy with the subtitles drawn on the picture")
                 .clicked()
             {
                 let v = json!({"output": speech_path(&path, "subtitled")});
                 speech = Some(("video.captions.burn", v, "Adding subtitles..."));
             }
-            if ui.add_enabled(idle, egui::Button::new("Denoise")).clicked() {
+            if ui
+                .add_enabled(idle, egui::Button::new("Reduce noise"))
+                .on_hover_text("Save a copy with background noise reduced")
+                .clicked()
+            {
                 let v = json!({"output": speech_path(&path, "clean")});
                 speech = Some(("video.audio.denoise", v, "Reducing noise..."));
             }
+            ui.separator();
+            ui.weak("Cut silences also:");
+            ui.checkbox(&mut p.fillers, "removes um / uh");
+            ui.checkbox(&mut p.captions, "adds subtitles");
+            ui.checkbox(&mut p.denoise, "reduces noise");
         });
         if let Some((cmd, mut params, msg)) = speech {
             params["path"] = json!(path);

@@ -438,6 +438,11 @@ impl PolishPlan {
                 continue;
             };
             let local = Point::new(e.x - region.x, e.y - region.y);
+            let full = Rect::new(0, 0, self.video.w, self.video.h);
+            if !full.contains(local) {
+                // A click on another monitor or outside the recorded area is not on screen.
+                continue;
+            }
             if o.click_rings {
                 self.clicks.push(Click {
                     at_ms: at,
@@ -470,7 +475,12 @@ impl PolishPlan {
                         r.h,
                     )
                 })
-                .filter(|r| !r.is_empty())
+                // The element under the pointer is often the whole window; zoom on the click then.
+                .filter(|r| {
+                    !r.is_empty()
+                        && r.contains(local)
+                        && r.area().saturating_mul(5) <= self.video.area()
+                })
                 .unwrap_or_else(|| {
                     Rect::new(
                         local.x.saturating_sub(40),
@@ -726,6 +736,22 @@ mod tests {
             &PolishOpts::default(),
         );
         assert_eq!(p.total_ms, 0);
+    }
+
+    #[test]
+    fn a_whole_window_element_still_zooms_on_the_click_and_outside_clicks_are_ignored() {
+        let mut d = ev(1000, EventKind::Down, 200, 100);
+        d.rect = Some(Rect::new(0, 0, 2560, 1540));
+        let mut far = ev(3000, EventKind::Down, -600, 300);
+        far.rect = Some(Rect::new(-900, 280, 360, 64));
+        let o = PolishOpts {
+            trim_idle: false,
+            ..PolishOpts::default()
+        };
+        let p = PolishPlan::build(&log(vec![d, far], 5000), 5000, video(), &o);
+        assert_eq!(p.shots.len(), 1, "{:?}", p.shots);
+        assert!(p.shots[0].rect.contains(Point::new(200, 100)));
+        assert_eq!(p.clicks.len(), 1);
     }
 
     #[test]

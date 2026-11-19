@@ -93,9 +93,20 @@ The output folder defaults to `Videos\screenIt tutorials` in your user profile. 
 
 A step-by-step guide is on the wiki: [AI tutorial](https://github.com/Busbar2297/screenit/wiki/AI-tutorial).
 
+## Recording polish and sound
+
+Record with **Auto-polish** on, then open the recording in the editor. Tick what you want
+(zoom on clicks, cut idle, speed up typing, shortcut badges), pick the frame shape and press
+**Render polished video**. It saves `clip-polished.mp4` next to the recording, and needs nothing
+extra installed.
+
+Silence cuts and noise reduction also work out of the box. Subtitles, filler-word cuts and
+narration voices need a local speech server (whisper.cpp or Speaches); setup and every setting
+are in [docs/audio.md](docs/audio.md).
+
 ## Download
 
-Grab `screenit-v0.2.27-windows-x64.zip` from the [Releases](https://github.com/Busbar2297/screenit/releases)
+Grab `screenit-v0.2.28-windows-x64.zip` from the [Releases](https://github.com/Busbar2297/screenit/releases)
 page. Either run the `.msi` (per-user install, no admin rights, starts minimized with Windows; pass `STARTUP=0` to skip that) or unzip the portable zip anywhere and run `screenit.exe`. Turn *Start with Windows* on or off in Settings; `screenit.exe --minimized` starts straight into the tray. The MSI is unsigned, so SmartScreen may warn.
 
 Requirements: Windows 10 (1903 or later) or Windows 11, 64-bit.
@@ -161,7 +172,7 @@ crates/     geom raster codecs doc ops algo vector compose format capture record
 xtask/      layers, ci, parity, scorecard, panic-hunt, perf, package
 ```
 
-More detail: [architecture](docs/architecture.md), [development](docs/development.md),
+More detail: [architecture](docs/architecture.md), [development](docs/development.md), [audio and speech](docs/audio.md),
 [known gaps](docs/gaps.md), [feature checklist](docs/parity-checklist.md).
 
 ## Contributing

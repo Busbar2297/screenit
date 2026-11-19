@@ -320,3 +320,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 - Recording bar drag is our own (cursor delta, native SetWindowPos) instead of the OS caption drag; size uses the DPI of the monitor at the target spot and the position is clamped to its work area, so it no longer oscillates between DPIs or leaves the screen.
 
+
+## 2026-11-19 - Release 0.2.28
+
+- Polish zoom: UIA element rect was the whole window for every click, and zoom_rect refuses targets over 1/5 of the frame, so no click zoomed (one zoom from an off-region click). Element rect is used only when small and containing the click; off-region clicks are skipped. Verified on a real recording: 1 shot became 5, frame at 3.8 s is zoomed.
+- Polish bar: widgets used the same fill as the bar; now contrasted, grouped, tooltips, accent Render button. docs/audio.md added.
+

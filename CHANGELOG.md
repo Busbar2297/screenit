@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.28
+
+- Zoom on clicks works again: a click whose element is the whole window zooms on the click point, and clicks outside the recorded area are ignored.
+- The Auto-polish bar is easier to read: visible checkboxes and buttons, grouped rows, tooltips, and a clear **Render polished video** button.
+- New guide docs/audio.md: what each sound feature needs and how to set up a speech server.
+
 ## 0.2.27
 
 - Dragging the recording bar follows the mouse smoothly across monitors, and the bar always stays inside a screen.
