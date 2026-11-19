@@ -24,6 +24,7 @@ const FRAME_TITLES: [&str; 4] = [
 /// Thickness of each side of the recording frame, in logical points.
 const FRAME_PT: f32 = 8.0;
 pub(crate) const REC_RED: Color32 = Color32::from_rgb(239, 68, 68);
+const COLLAPSED_W: f32 = 150.0;
 const COUNTDOWN: Duration = Duration::from_secs(3);
 const BAR_H: f32 = 64.0;
 
@@ -55,6 +56,16 @@ pub(crate) struct RecUi {
     screen: IRect,
     /// Still counting down until this instant; `None` once the recorder runs.
     countdown_end: Option<Instant>,
+    /// Area picked, waiting for the user to press Start before the countdown runs.
+    waiting: bool,
+    /// The monitor the toolbar lives on (the area may span several).
+    bar_screen: IRect,
+    /// Where the bar was last placed automatically (physical px).
+    bar_pos: Option<(i32, i32)>,
+    /// The user dragged the bar, so it stays where they put it.
+    bar_user: bool,
+    /// Small bar (timer and Stop only) that stays out of the way of the mouse.
+    collapsed: bool,
     opts: RecOptions,
     output: String,
     paused: bool,
@@ -71,6 +82,9 @@ enum Action {
     Resume,
     Stop,
     Cancel,
+    Start,
+    Moved,
+    ToggleCollapse,
 }
 
 /// Toolbar placement (physical px): centred under the area, else above it, else inside its
@@ -86,7 +100,8 @@ pub(crate) fn toolbar_pos(region: IRect, screen: IRect, w: i32, h: i32) -> (i32,
     } else if above >= screen.y {
         above
     } else {
-        region.y + region.h as i32 - h - 2 * gap
+        let bottom = (region.y + region.h as i32).min(screen.y + screen.h as i32);
+        (bottom - h - 2 * gap).max(screen.y)
     };
     (x, y)
 }
@@ -124,7 +139,13 @@ impl UiApp {
     }
 
     /// The overlay picked `rect` (physical px) for recording: clamp it and start the countdown.
-    pub(crate) fn begin_record(&mut self, ctx: &egui::Context, rect: IRect, screen: IRect) {
+    pub(crate) fn begin_record(
+        &mut self,
+        ctx: &egui::Context,
+        rect: IRect,
+        screen: IRect,
+        bar_screen: IRect,
+    ) {
         let Some(region) = rect.intersect(&screen).filter(|r| r.w >= 16 && r.h >= 16) else {
             self.status = "That area is too small to record".into();
             self.settle_after_capture();
@@ -140,6 +161,11 @@ impl UiApp {
             region,
             screen,
             countdown_end: Some(Instant::now() + COUNTDOWN),
+            waiting: true,
+            bar_screen,
+            bar_pos: None,
+            bar_user: false,
+            collapsed: false,
             opts: self.rec_opts,
             output: default_output("mp4").replace("capture-", "recording-"),
             paused: false,
@@ -218,7 +244,7 @@ impl UiApp {
         let Some(r) = &self.recording else {
             return;
         };
-        if r.countdown_end.is_some_and(|t| Instant::now() >= t) {
+        if !r.waiting && r.countdown_end.is_some_and(|t| Instant::now() >= t) {
             match self.start_recorder() {
                 Ok(()) => {
                     if let Some(r) = &mut self.recording {
@@ -289,8 +315,20 @@ impl UiApp {
         }
 
         let ppp = ctx.pixels_per_point().max(0.1);
-        let w = if r.opts.webcam { 470.0 } else { 360.0 };
-        let (px, py) = toolbar_pos(r.region, r.screen, (w * ppp) as i32, (BAR_H * ppp) as i32);
+        let w = if r.collapsed {
+            COLLAPSED_W
+        } else if r.opts.webcam {
+            470.0
+        } else {
+            360.0
+        };
+        let (bw, bh) = screenit_platform::window::size_of_titled(TOOLBAR_TITLE)
+            .unwrap_or(((w * ppp) as i32, (BAR_H * ppp) as i32));
+        let (px, py) = match r.bar_pos {
+            Some(p) if r.bar_user => p,
+            _ => toolbar_pos(r.region, r.bar_screen, bw, bh),
+        };
+        r.bar_pos = Some((px, py));
         let builder = ViewportBuilder::default()
             .with_title(TOOLBAR_TITLE)
             .with_decorations(false)
@@ -308,6 +346,13 @@ impl UiApp {
                     .frame(egui::Frame::NONE.fill(theme::BG))
                     .show(ui, |ui| action = toolbar(ui, r));
             },
+        );
+        // Physical pixels, so mixed-scale monitors cannot push the bar out of view.
+        screenit_platform::window::place_bar(
+            TOOLBAR_TITLE,
+            w,
+            BAR_H,
+            (!r.bar_user).then_some((px, py)),
         );
         if !r.excluded {
             // SCREENIT_TOOLBAR_IN_CAPTURE=1 keeps the toolbar capturable (screenshots of the UI).
@@ -327,6 +372,22 @@ impl UiApp {
             }
             Action::Resume => {
                 self.run("record.resume", json!({}));
+            }
+            Action::Moved => {
+                if let Some(r) = &mut self.recording {
+                    r.bar_user = true;
+                }
+            }
+            Action::ToggleCollapse => {
+                if let Some(r) = &mut self.recording {
+                    r.collapsed = !r.collapsed;
+                }
+            }
+            Action::Start => {
+                if let Some(r) = &mut self.recording {
+                    r.waiting = false;
+                    r.countdown_end = Some(Instant::now() + COUNTDOWN);
+                }
             }
             Action::Stop => self.end_recording(ctx, true),
             Action::Cancel => self.end_recording(ctx, false),
@@ -490,6 +551,9 @@ fn toolbar(ui: &mut egui::Ui, r: &RecUi) -> Action {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
     let mut action = Action::None;
+    if bg.drag_started() {
+        action = Action::Moved;
+    }
     let mut x = full.min.x + 12.0;
     let cy = full.center().y;
     if r.opts.webcam {
@@ -503,6 +567,37 @@ fn toolbar(ui: &mut egui::Ui, r: &RecUi) -> Action {
             icons::paint(&p, Icon::Camera, cam.shrink2(Vec2::new(36.0, 15.0)), MUTED);
         }
         x = cam.max.x + 12.0;
+    }
+    if r.waiting {
+        let start = Rect::from_min_size(Pos2::new(x, cy - 18.0), Vec2::new(150.0, 36.0));
+        let resp = ui.interact(start, ui.scope_id().with("rec-start"), egui::Sense::click());
+        let fill = if resp.hovered() {
+            REC_RED
+        } else {
+            REC_RED.gamma_multiply(0.85)
+        };
+        p.rect_filled(start, 8.0, fill);
+        p.text(
+            start.center(),
+            egui::Align2::CENTER_CENTER,
+            "Start recording",
+            egui::FontId::proportional(14.0),
+            Color32::WHITE,
+        );
+        p.text(
+            Pos2::new(start.max.x + 12.0, cy),
+            egui::Align2::LEFT_CENTER,
+            format!("{} × {}", r.region.w, r.region.h),
+            egui::FontId::proportional(11.5),
+            MUTED,
+        );
+        let b = Rect::from_center_size(Pos2::new(full.max.x - 30.0, cy), Vec2::splat(36.0));
+        if button(ui, b, Icon::Close, "Cancel", false).clicked() {
+            action = Action::Cancel;
+        } else if resp.clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            action = Action::Start;
+        }
+        return action;
     }
     if let Some(end) = r.countdown_end {
         let left = end
@@ -561,6 +656,17 @@ fn toolbar(ui: &mut egui::Ui, r: &RecUi) -> Action {
         egui::FontId::proportional(11.0),
         MUTED,
     );
+    if r.collapsed {
+        let stop = Rect::from_center_size(Pos2::new(full.max.x - 24.0, cy), Vec2::splat(34.0));
+        let grow = Rect::from_center_size(Pos2::new(full.max.x - 62.0, cy), Vec2::splat(34.0));
+        if button(ui, grow, Icon::Compact, "Show the full bar", false).clicked() {
+            action = Action::ToggleCollapse;
+        }
+        if button(ui, stop, Icon::Stop, "Stop and open in the editor", true).clicked() {
+            action = Action::Stop;
+        }
+        return action;
+    }
     // Source indicators.
     let mut ix = x + 110.0;
     for (on, icon, tip) in [
@@ -582,6 +688,10 @@ fn toolbar(ui: &mut egui::Ui, r: &RecUi) -> Action {
         ui.interact(ir, ui.scope_id().with(("rec", tip)), Sense::hover())
             .on_hover_text(format!("{tip}: {}", if on { "on" } else { "off" }));
         ix += 24.0;
+    }
+    let shrink = Rect::from_center_size(Pos2::new(full.max.x - 128.0, cy), Vec2::splat(34.0));
+    if button(ui, shrink, Icon::Compact, "Make the bar small", false).clicked() {
+        action = Action::ToggleCollapse;
     }
     let stop = Rect::from_center_size(Pos2::new(full.max.x - 32.0, cy), Vec2::splat(40.0));
     let pause = Rect::from_center_size(Pos2::new(full.max.x - 80.0, cy), Vec2::splat(40.0));

@@ -21,7 +21,7 @@ use windows_sys::Win32::UI::Input::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, HC_ACTION,
     HWND_MESSAGE, KBDLLHOOKSTRUCT, MSG, RegisterClassW, SetWindowsHookExW, UnhookWindowsHookEx,
-    WH_KEYBOARD_LL, WM_INPUT, WM_KEYDOWN, WM_SYSKEYDOWN, WNDCLASSW,
+    WH_KEYBOARD_LL, WM_INPUT, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW,
 };
 
 type Callback = Box<dyn Fn() + Send + 'static>;
@@ -69,7 +69,12 @@ fn fire() -> bool {
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code == HC_ACTION as i32 && (wparam as u32 == WM_KEYDOWN || wparam as u32 == WM_SYSKEYDOWN) {
+    // Print Screen often arrives as a key-up only. A down-only listener never sees it.
+    let edge = wparam as u32 == WM_KEYDOWN
+        || wparam as u32 == WM_SYSKEYDOWN
+        || wparam as u32 == WM_KEYUP
+        || wparam as u32 == WM_SYSKEYUP;
+    if code == HC_ACTION as i32 && edge {
         // SAFETY: for HC_ACTION, `lparam` points at a KBDLLHOOKSTRUCT owned by the system.
         let vk = unsafe { (*(lparam as *const KBDLLHOOKSTRUCT)).vkCode };
         if vk == VK_SNAPSHOT as u32 && no_modifiers() && fire() {

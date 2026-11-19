@@ -20,7 +20,7 @@ mod update_ui;
 use icons::Icon;
 
 use eframe::egui;
-use screenit_capture::{FrozenScreen, Selection};
+use screenit_capture::{FrozenScreen, ScreenSource, Selection};
 use screenit_engine::{Session, control};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -210,18 +210,8 @@ pub struct UiApp {
     /// The dark title bar has been applied to the native window.
     framed: bool,
     quit: bool,
-    /// Sign-in asked to start minimized on the taskbar.
+    /// Park in the tray on the first frame (start with Windows).
     start_hidden: bool,
-    /// Sign-in minimize stays a taskbar button until the user restores the window.
-    taskbar_min: bool,
-    /// Frames since an unfocused restore, before sign-in minimizes again.
-    taskbar_min_grace: u8,
-    /// The sign-in minimize has been seen, so the next restore is the user.
-    taskbar_min_seen: bool,
-    /// Frames since the window existed. Minimize waits until the GL surface is up.
-    boot_frames: u8,
-    /// A minimize may park off-screen. False at sign-in until the user has opened the window.
-    allow_tray: bool,
     pub(crate) win_langs: Option<Vec<String>>,
     pub(crate) llm_models: Vec<String>,
     pub(crate) llm_msg: String,
@@ -305,11 +295,6 @@ impl UiApp {
             framed: false,
             quit: false,
             start_hidden: false,
-            taskbar_min: false,
-            taskbar_min_grace: 0,
-            taskbar_min_seen: false,
-            boot_frames: 0,
-            allow_tray: true,
             win_langs: None,
             llm_models: Vec::new(),
             llm_msg: String::new(),
@@ -361,15 +346,21 @@ impl UiApp {
         preset: Option<String>,
     ) {
         // Move the editor off-screen (minimised windows stop receiving frames) so it is not in the shot.
-        // A window that is already minimized is not in the shot. Moving it would store the
-        // off-screen iconic position as the place to come back to.
-        if self.saved_pos.is_none()
-            && !self.tray
-            && !screenit_platform::window::is_iconic()
-            && let Some(p) = screenit_platform::window::main_position().filter(|p| p.0 > -30000)
-        {
-            self.saved_pos = Some(p);
-            screenit_platform::window::move_main(-32000, -32000);
+        // A minimized window does not paint, so the capture screen is never built until the user
+        // focuses the app. Show it without activating, then park it off-screen: it is out of the
+        // shot, and the UI keeps running. Painting the minimized window itself quits the process.
+        if self.saved_pos.is_none() && !self.tray {
+            if screenit_platform::window::is_iconic() {
+                self.saved_pos = screenit_platform::window::restored_origin();
+                screenit_platform::window::show_without_activating();
+            } else if let Some(p) =
+                screenit_platform::window::main_position().filter(|p| p.0 > -30000)
+            {
+                self.saved_pos = Some(p);
+            }
+            if self.saved_pos.is_some() {
+                screenit_platform::window::move_main(-32000, -32000);
+            }
         }
         self.pending = Some((Instant::now() + Duration::from_millis(350), what, preset));
         ctx.request_repaint_after(Duration::from_millis(400));
@@ -377,7 +368,21 @@ impl UiApp {
 
     /// Resize the single window for a view and switch to it.
     pub(crate) fn enter_view(&mut self, ctx: &egui::Context, view: View) {
+        let was_grow = view_can_grow(self.view);
         self.view = view;
+        if was_grow && !view_can_grow(view) {
+            // Coming back from a big view: the scale nudge leaves a far-off size alone, so
+            // the capture bar kept the tutorial or editor size. Set it outright.
+            if screenit_platform::window::is_maximized() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+            }
+            let [w, h] = match view {
+                View::Settings => [960.0, 660.0],
+                View::About => [720.0, 560.0],
+                _ => COMPACT_SIZE,
+            };
+            let _ = screenit_platform::window::set_client_size(w, h);
+        }
         self.apply_view_size(ctx);
     }
 
@@ -498,10 +503,6 @@ impl UiApp {
         screenit_platform::window::enter_tray();
         self.tray = true;
         self.tray_background = false;
-        self.taskbar_min = false;
-        self.taskbar_min_grace = 0;
-        self.taskbar_min_seen = false;
-        self.allow_tray = true;
         self.saved_pos = None;
     }
 
@@ -655,7 +656,23 @@ impl UiApp {
                 _ => None,
             };
             match rect {
-                Some(r) => self.begin_record(ctx, r, frozen.bounds()),
+                Some(r) => {
+                    let screen = frozen.bounds();
+                    let at = screenit_geom::Point::new(r.x + r.w as i32 / 2, r.y + r.h as i32 / 2);
+                    let bar = frozen
+                        .monitors()
+                        .ok()
+                        .and_then(|ms| ms.into_iter().find(|m| m.rect.contains(at)).map(|m| m.rect))
+                        .unwrap_or(screen);
+                    // Keep the bar clear of the taskbar when the area covers the whole screen.
+                    let bar = screenit_platform::window::work_area_at(at.x, at.y)
+                        .map(|(x, y, w, h)| {
+                            screenit_geom::Rect::new(x, y, w.max(1) as u32, h.max(1) as u32)
+                        })
+                        .and_then(|wa| wa.intersect(&bar))
+                        .unwrap_or(bar);
+                    self.begin_record(ctx, r, screen, bar)
+                }
                 None => self.settle_after_capture(),
             }
             return;
@@ -901,48 +918,20 @@ impl eframe::App for UiApp {
             screenit_platform::window::apply_exe_icon();
         }
         if self.start_hidden {
+            // Sign-in goes to the notification area like other capture tools. A window
+            // minimized on the taskbar stops drawing, and then Print Screen cannot open
+            // the capture screen.
             self.start_hidden = false;
-            self.taskbar_min = true;
-            self.allow_tray = false;
+            self.send_to_tray();
         }
-        self.boot_frames = self.boot_frames.saturating_add(1);
         let close = ctx.input(|i| i.viewport().close_requested());
         let iconic = screenit_platform::window::is_iconic();
-        let (hold, seen, grace, ask, yield_now) = screenit_platform::window::startup_minimize(
-            self.taskbar_min,
-            self.taskbar_min_seen,
-            self.taskbar_min_grace,
-            iconic,
-            screenit_platform::window::is_foreground(),
-            self.boot_frames >= 2,
-        );
-        if self.taskbar_min && !hold {
-            self.allow_tray = true;
-        }
-        self.taskbar_min = hold;
-        self.taskbar_min_grace = grace;
-        self.taskbar_min_seen = seen;
-        if ask {
-            // The toolkit flag stops winit restoring the window. SW_SHOWMINNOACTIVE is what
-            // actually minimizes a window that started with Windows and has never been focused.
-            self.surface_pokes = 0;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-            screenit_platform::window::minimize_inactive();
-        }
-        if yield_now {
-            screenit_platform::window::yield_foreground();
-        }
-        if self.taskbar_min && !iconic && (seen || grace < 64) {
-            ctx.request_repaint();
-        }
         if close && !self.quit {
             // Closing the window keeps screenIt running in the tray (Quit is in the tray menu).
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.send_to_tray();
         } else if iconic
-            && self.allow_tray
             && !self.tray
-            && !self.taskbar_min
             && self.overlay.is_none()
             && self.pending.is_none()
             && self.recording.is_none()
@@ -1069,8 +1058,7 @@ impl eframe::App for UiApp {
 }
 /// Start the UI. `setup` runs once the window exists and returns the event receiver, so hotkey,
 /// tray and control-channel threads can be given a `Waker`.
-/// start_hidden starts minimized on the taskbar (used for start-with-Windows).
-/// It stays a real taskbar button until the user opens it. It is not parked off-screen.
+/// start_hidden starts parked in the tray (used for start-with-Windows).
 pub fn run(
     session: Session,
     start_hidden: bool,
@@ -1089,8 +1077,11 @@ pub fn run(
             height: 256,
         });
     if start_hidden {
-        // Inactive until the first frame minimizes it onto the taskbar.
-        viewport = viewport.with_active(false);
+        // Off-screen and inactive, so startup does not leave a highlighted taskbar button
+        // for a window the user cannot see.
+        viewport = viewport
+            .with_position([-32000.0, -32000.0])
+            .with_active(false);
     }
     let options = eframe::NativeOptions {
         viewport,

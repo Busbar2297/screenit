@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, MonitorFromWindow,
 };
 use windows_sys::Win32::System::Threading::{
     AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
@@ -15,8 +15,8 @@ use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GWL_EXSTYLE, GetClientRect, GetForegroundWindow, GetShellWindow,
     GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-    IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED, SW_HIDE, SW_RESTORE, SW_SHOWMAXIMIZED,
-    SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    IsIconic, IsZoomed, SIZE_MAXIMIZED, SIZE_RESTORED, SW_HIDE, SW_RESTORE, SW_SHOW,
+    SW_SHOWMAXIMIZED, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
     SetWindowDisplayAffinity, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
     WINDOWPLACEMENT, WM_SIZE, WPF_RESTORETOMAXIMIZED, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
@@ -79,6 +79,78 @@ pub fn exclude_from_capture(title: &str) -> bool {
     // SAFETY: valid window handle owned by this process; documented affinity constant.
     unsafe { SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE) != 0 }
 }
+/// The usable area (x, y, w, h) of the monitor holding this physical point: the monitor
+/// without the taskbar and docked bars.
+pub fn work_area_at(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    let pt = windows_sys::Win32::Foundation::POINT { x, y };
+    // SAFETY: plain value argument; the nearest monitor is returned for any point.
+    let m = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+    // SAFETY: info is writable with its size set.
+    if unsafe { GetMonitorInfoW(m, &mut info) } == 0 {
+        return None;
+    }
+    let r = info.rcWork;
+    Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
+}
+
+/// Size one of our windows to `w_pt` x `h_pt` logical points at the DPI of the monitor it is on,
+/// keep it on top, and optionally move it to physical pixel `pos`. Done natively because a toolkit
+/// size in points is re-applied on every DPI change, and the bar grew each time it crossed monitors.
+pub fn place_bar(title: &str, w_pt: f32, h_pt: f32, pos: Option<(i32, i32)>) -> bool {
+    let Some(h) = own_window(title) else {
+        return false;
+    };
+    // SAFETY: valid window handle owned by this process.
+    let dpi = unsafe { GetDpiForWindow(h) };
+    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+    if !scale.is_finite() || !w_pt.is_finite() || !h_pt.is_finite() || !(0.5..=4.0).contains(&scale)
+    {
+        return false;
+    }
+    let w = ((w_pt * scale).round() as i32).clamp(1, 8192);
+    let ht = ((h_pt * scale).round() as i32).clamp(1, 8192);
+    let mut r = RECT::default();
+    // SAFETY: valid window handle owned by this process; `r` is writable.
+    if unsafe { GetWindowRect(h, &mut r) } == 0 {
+        return false;
+    }
+    let same_size = r.right - r.left == w && r.bottom - r.top == ht;
+    let same_pos = pos.is_none_or(|(x, y)| r.left == x && r.top == y);
+    if same_size && same_pos {
+        return true;
+    }
+    let (x, y) = pos.unwrap_or((r.left, r.top));
+    // SAFETY: valid window handle owned by this process; -1 is HWND_TOPMOST.
+    unsafe { SetWindowPos(h, -1isize as HWND, x, y, w, ht, SWP_NOACTIVATE) != 0 }
+}
+/// Outer size in physical pixels of one of our windows.
+pub fn size_of_titled(title: &str) -> Option<(i32, i32)> {
+    let h = own_window(title)?;
+    let mut r = RECT::default();
+    // SAFETY: valid window handle owned by this process; `r` is writable.
+    if unsafe { GetWindowRect(h, &mut r) } == 0 {
+        return None;
+    }
+    Some((r.right - r.left, r.bottom - r.top))
+}
+
+/// Put one of our windows at physical pixel `(x, y)` and keep it on top. Unlike a toolkit
+/// position in points, this is right on a desktop whose monitors use different scaling.
+pub fn move_topmost(title: &str, x: i32, y: i32) -> bool {
+    let Some(h) = own_window(title) else {
+        return false;
+    };
+    let mut r = RECT::default();
+    // SAFETY: valid window handle owned by this process; `r` is writable.
+    if unsafe { GetWindowRect(h, &mut r) } != 0 && r.left == x && r.top == y {
+        return true;
+    }
+    // SAFETY: valid window handle owned by this process; -1 is HWND_TOPMOST.
+    unsafe { SetWindowPos(h, -1isize as HWND, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE) != 0 }
+}
+
 fn set_toolwindow(h: HWND, tool: bool) {
     // SAFETY: style read-modify-write on a window of this process, bracketed by hide/show so the
     // taskbar picks up the change.
@@ -151,13 +223,28 @@ pub fn enter_tray() {
     }
 }
 
-/// Minimize without activating. `SW_MINIMIZE` is ignored for a window that has never been
-/// focused, which is every window started from the Run key. The taskbar button then stays
-/// pressed until the user focuses it and focuses something else.
-pub fn minimize_inactive() {
+/// Show the main window without giving it the foreground. A minimized window does not paint,
+/// so a capture started while it is minimized has to leave the iconic state first.
+pub fn show_without_activating() {
     let Some(h) = main_window() else { return };
     // SAFETY: valid window handle owned by this process.
-    unsafe { ShowWindow(h, SW_SHOWMINNOACTIVE) };
+    unsafe { ShowWindow(h, SW_SHOWNOACTIVATE) };
+}
+
+/// Where a minimized window comes back to. The iconic rectangle is off-screen and must not be
+/// saved as the home position.
+pub fn restored_origin() -> Option<(i32, i32)> {
+    let h = main_window()?;
+    let mut place = WINDOWPLACEMENT {
+        length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+    // SAFETY: `place.length` is set and `h` is a window of this process.
+    if unsafe { GetWindowPlacement(h, &mut place) } == 0 {
+        return None;
+    }
+    let (x, y) = (place.rcNormalPosition.left, place.rcNormalPosition.top);
+    (x > -30_000 && y > -30_000).then_some((x, y))
 }
 
 /// Bring one of our windows to the front. `SetForegroundWindow` alone fails for a process that
@@ -166,53 +253,11 @@ pub fn focus_titled(title: &str) -> bool {
     let Some(h) = own_window(title) else {
         return false;
     };
+    // A window created while the main window is minimized can come up hidden.
+    // SAFETY: valid window handle owned by this process.
+    unsafe { ShowWindow(h, SW_SHOW) };
     focus_window(h);
     true
-}
-
-/// Keep a sign-in minimize on the taskbar until the user restores it.
-///
-/// Returns `(still_holding, have_seen_iconic, grace, ask_now, yield_foreground)`.
-/// `ask_now` stays true until Windows reports the window iconic, including after a restore that
-/// did not focus the window (the toolkit undoing the minimize). A focused restore is the user.
-/// `grace` counts frames after an unfocused restore before asking again, so a taskbar click can
-/// land. `yield_foreground` is the first iconic frame that is still the foreground window: that
-/// is the pressed taskbar button.
-pub fn startup_minimize(
-    holding: bool,
-    seen: bool,
-    grace: u8,
-    iconic: bool,
-    foreground: bool,
-    ready: bool,
-) -> (bool, bool, u8, bool, bool) {
-    if !holding {
-        return (false, false, 0, false, false);
-    }
-    if iconic {
-        let yield_now = !seen && foreground;
-        return (true, true, 0, false, yield_now);
-    }
-    if seen {
-        if foreground {
-            return (false, false, 0, false, false);
-        }
-        // Wait so a taskbar click can take focus, then minimize again. Reset the wait
-        // after each ask so a toolkit restore cannot spin the frame loop.
-        if grace < 12 {
-            return (true, true, grace.saturating_add(1), false, false);
-        }
-        return (true, true, 0, true, false);
-    }
-    if !ready {
-        return (true, false, 0, false, false);
-    }
-    // Not iconic yet. Ask once every 8 frames, and stop after a few tries.
-    if grace >= 64 {
-        return (true, false, grace, false, false);
-    }
-    let ask = grace.is_multiple_of(8);
-    (true, false, grace.saturating_add(1), ask, false)
 }
 
 /// Put the executable's icon on the main window. A taskbar button created after a style change
@@ -667,50 +712,5 @@ mod tests {
         assert!(super::should_surface(false, false, true, false));
         assert!(!super::should_yield(true, true, false));
         assert!(!super::should_yield(false, false, true));
-    }
-
-    #[test]
-    fn sign_in_stays_minimized_on_the_taskbar_until_the_user_restores_it() {
-        // Surface not ready yet: hold, and do not minimize into a half-created window.
-        assert_eq!(
-            super::startup_minimize(true, false, 0, false, false, false),
-            (true, false, 0, false, false)
-        );
-        // Ready and never focused: ask, then wait before asking again.
-        assert_eq!(
-            super::startup_minimize(true, false, 0, false, false, true),
-            (true, false, 1, true, false)
-        );
-        assert_eq!(
-            super::startup_minimize(true, false, 1, false, false, true),
-            (true, false, 2, false, false)
-        );
-        // Iconic and still foreground: yield so the taskbar button is not left pressed.
-        assert_eq!(
-            super::startup_minimize(true, false, 0, true, true, true),
-            (true, true, 0, false, true)
-        );
-        assert_eq!(
-            super::startup_minimize(true, true, 0, true, false, true),
-            (true, true, 0, false, false)
-        );
-        // Unfocused restore: wait, then ask again. Do not treat it as the user.
-        assert_eq!(
-            super::startup_minimize(true, true, 0, false, false, true),
-            (true, true, 1, false, false)
-        );
-        assert_eq!(
-            super::startup_minimize(true, true, 12, false, false, true),
-            (true, true, 0, true, false)
-        );
-        // Focused restore is the user opening the window.
-        assert_eq!(
-            super::startup_minimize(true, true, 0, false, true, true),
-            (false, false, 0, false, false)
-        );
-        assert_eq!(
-            super::startup_minimize(false, false, 0, true, true, true),
-            (false, false, 0, false, false)
-        );
     }
 }

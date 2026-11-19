@@ -172,6 +172,10 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 - Test tip: PowerShell drag scripts must call SetProcessDPIAware or cursor lands ~1.25x off.
 
 
+## 2026-11-17 - Release 0.2.20
+- Print Screen while minimized never built the capture screen, because eframe skips `ui` for an iconic window. Asking it to paint while minimized quit the process. Show the window without activating and park it off-screen for the capture, and accept Print Screen on key-up.
+- Sign-in parks in the tray again (off-screen tool window, as in 0.2.15), like Snagit. The taskbar-minimize path from 0.2.16 to 0.2.18 is removed; the 0.2.15 yield and surface fixes still handle the startup foreground.
+
 ## 2026-11-17 - Release 0.2.18
 - Sign-in used SW_MINIMIZE, which Windows ignores until the window has been focused, so the taskbar button stayed pressed until a focus in and out. Minimize with SW_SHOWMINNOACTIVE and give the foreground to the shell once it sticks.
 - Print Screen created the capture window but could not raise it (SetForegroundWindow fails for a process started with Windows). Share input with the foreground thread. Do not move an already-minimized window; that saved the iconic position as the restore point.
@@ -300,3 +304,14 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 ## 2026-11-09 - Search terms on the repo
 - README opens by naming screenIt as a Windows screen recorder, screenshot tool, and open-source Snagit alternative. GitHub About description, website (Releases), topics, and Discussions match those searches.
+
+## 2026-11-19 - Release 0.2.21
+
+- Recording: explicit Start button before the countdown; toolbar placed in physical pixels on the monitor holding the area, topmost. Capture bar resizes when leaving a growable view.
+- Open: Print Screen from the tray does not show the overlay on 0.2.20 (overlay drive runs but no window appears); not solved.
+
+
+## 2026-11-19 - Release 0.2.26
+
+- Recording bar: native placement and sizing (place_bar), work-area aware, draggable, collapsible. Still open: Print Screen from the tray shows no overlay.
+

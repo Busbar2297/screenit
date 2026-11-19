@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 0.2.26
+
+- Recording waits for Start; the recording bar can be dragged, made small, and stays above the taskbar and in view across monitors.
+
+## 0.2.25
+
+- The recording bar keeps its size when dragged between monitors with different scaling.
+
+## 0.2.24
+
+- Rebuild of 0.2.23 with no further changes.
+
+## 0.2.23
+
+- The recording bar can be dragged to another monitor and stays there, and a small-bar button shrinks it to timer and Stop so it stays out of the way.
+
+## 0.2.22
+
+- The recording bar stays above the taskbar when the area is the whole screen.
+
+## 0.2.21
+
+- Recording waits for you to press Start (or Enter) after you pick the area, then counts down.
+- The recording bar stays on one monitor and in view when the area spans several, so Pause and Stop are always reachable.
+- Returning from the tutorial or editor to the capture bar restores its size.
+
+## 0.2.20
+
+- Starting with Windows puts screenIt in the notification area again, with no taskbar button, and Print Screen captures right away.
+- Print Screen opens the capture screen even when the window was minimized.
+
 ## 0.2.18
 
 - Starting with Windows minimizes onto the taskbar without a click, and Print Screen opens the capture screen before the window has ever been focused.
