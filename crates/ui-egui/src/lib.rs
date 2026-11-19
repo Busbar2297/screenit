@@ -12,7 +12,6 @@ mod recording;
 mod scrolling;
 mod selection;
 mod settings_panel;
-mod speech_steps;
 mod theme;
 mod toast;
 mod tutor_panel;

@@ -102,14 +102,24 @@ fn plan_for(
     s: &Session,
     path: &Path,
     opts: &PolishOpts,
+    allow_no_log: bool,
 ) -> Result<(PolishPlan, EventLog), CommandError> {
-    let log = load_log(path)?;
     let reader = s
         .services
         .video
         .clone()
         .ok_or_else(|| CommandError::Disabled("no video reader available".into()))?;
     let info = reader.probe(path).map_err(CommandError::failed)?;
+    // Sound and subtitle edits need no event log: a recording without one just gets no picture
+    // effects.
+    let log = match load_log(path) {
+        Ok(l) => l,
+        Err(_) if allow_no_log => EventLog {
+            duration_ms: info.duration_ms,
+            ..EventLog::default()
+        },
+        Err(e) => return Err(e),
+    };
     let video = if log.region.is_empty() {
         Rect::new(0, 0, info.width, info.height)
     } else {
@@ -143,7 +153,7 @@ fn polish_plan(s: &mut Session, p: &Value) -> CmdResult {
     let a = Args::new(p, &keys_with(&["path"]))?;
     let path = video_path(&a)?;
     let opts = opts_from(&a)?;
-    let (plan, _) = plan_for(s, &path, &opts)?;
+    let (plan, _) = plan_for(s, &path, &opts, false)?;
     Ok(plan_value(&plan))
 }
 
@@ -345,7 +355,10 @@ fn polish(s: &mut Session, p: &Value) -> CmdResult {
         &crate::speech_cmds::SilenceOpts::default(),
     )?;
     opts.extra_cuts = edits.cuts;
-    let (mut plan, _) = plan_for(s, &path, &opts)?;
+    let sound_edits = ["silence", "fillers", "captions", "denoise"]
+        .iter()
+        .any(|k| a.bool(k, false).unwrap_or(false));
+    let (mut plan, _) = plan_for(s, &path, &opts, sound_edits)?;
     plan.set_captions(&edits.captions);
     let zoom_filter = if a.bool("llm_clicks", false)? {
         let (chat, mut o) = crate::tutor_cmds::chat_setup(s)
@@ -561,6 +574,27 @@ mod tests {
             .is_err(),
             "no language model, no filter"
         );
+        let _ = std::fs::remove_dir_all(v.parent().unwrap());
+    }
+
+    #[test]
+    fn sound_edits_work_without_an_event_log_but_a_plain_polish_does_not() {
+        let v = clip("nolog-sound", false);
+        let out = v.with_file_name("o.mp4");
+        let mut s = session();
+        assert!(
+            s.dispatch("video.polish", &json!({"path": v, "output": out}))
+                .is_err(),
+            "picture effects need the log"
+        );
+        assert!(
+            s.dispatch(
+                "video.polish",
+                &json!({"path": v, "output": out, "denoise": true, "zoom": false})
+            )
+            .is_ok()
+        );
+        let _ = s.dispatch("tutor.wait", &json!({"timeout_ms": 30000}));
         let _ = std::fs::remove_dir_all(v.parent().unwrap());
     }
 

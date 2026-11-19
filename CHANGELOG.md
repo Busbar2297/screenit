@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.33
+
+- One **Make video** panel in the editor: tick picture effects, sound (reduce noise, cut silences, remove um/uh) and subtitles together and press **Create video** to get everything in one new file. Transcription runs first automatically when needed. Replaces the separate Speech buttons and the Steps row.
+- Sound and subtitle edits now also work on recordings without a click log.
+
 ## 0.2.32
 
 - Built-in Whisper transcription: download a model once in **Settings > Speech > Transcription** (tiny, base or small) and Transcribe works offline with real accuracy, punctuation and many languages. **Transcribe with** picks Automatic, Whisper, the Windows recognizer or a speech server.

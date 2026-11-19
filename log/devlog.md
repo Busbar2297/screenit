@@ -349,3 +349,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 - New crate screenit-whisper (L5, platform may use it): candle 0.11 Whisper, own Slaney mel bank (matches librosa) and byte-level tokenizer decode, greedy decode with timestamp rules, seek on last full timestamp, words spread per segment. Models downloaded via WinUpdateHost (WinHTTP, follows the HF redirect) into %LOCALAPPDATA%\screenIt\models. tiny model transcribed the TTS sentence exactly in 1.2 s.
 - record::speech::LocalSpeech + LocalModel; Services.stt_local; settings stt_engine/whisper_model; engine pick_stt; commands speech.models, speech.model.download.
+
+
+## 2026-11-19 - Release 0.2.33
+
+- UI: Make video panel replaces Speech row + Steps row; one video.polish call with silence/fillers/captions/denoise plus picture params; transcribe first (pending params) when needed. Removed speech_steps.rs (the ordered-steps idea; the order is fixed because it only has one sensible order).
+- engine: video.polish accepts a recording with no event log when a sound edit is set (empty EventLog).

@@ -36,8 +36,8 @@ pub(crate) struct PolishUi {
     pub(crate) fillers: bool,
     pub(crate) captions: bool,
     denoise: bool,
-    pub(crate) steps: Vec<crate::speech_steps::Step>,
-    pub(crate) chain: Option<crate::speech_steps::Chain>,
+    silence: bool,
+    pending: Option<Value>,
 }
 
 impl Default for PolishUi {
@@ -57,8 +57,8 @@ impl Default for PolishUi {
             fillers: false,
             captions: false,
             denoise: false,
-            steps: Vec::new(),
-            chain: None,
+            silence: false,
+            pending: None,
         }
     }
 }
@@ -80,22 +80,79 @@ impl PolishUi {
     }
 }
 
+impl PolishUi {
+    /// What "Create video" will do, for the summary line and to know whether anything is ticked.
+    fn todo(&self, has_log: bool) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        if has_log {
+            if self.zoom {
+                v.push("zoom");
+            }
+            if self.trim {
+                v.push("cut idle");
+            }
+            if self.typing {
+                v.push("fast typing");
+            }
+            if self.badges {
+                v.push("shortcuts");
+            }
+            if self.aspect != 0 || self.cursor != 0 || self.padding > 0 || self.corner > 0 {
+                v.push("frame");
+            }
+        }
+        if self.denoise {
+            v.push("less noise");
+        }
+        if self.silence {
+            v.push("no silences");
+        }
+        if self.fillers {
+            v.push("no um/uh");
+        }
+        if self.captions {
+            v.push("subtitles");
+        }
+        v
+    }
+
+    /// Filler cuts and burned subtitles read the transcript.
+    fn needs_transcript(&self) -> bool {
+        self.fillers || self.captions
+    }
+
+    /// `video.polish` parameters for everything ticked. Picture effects are off when the
+    /// recording has no click log.
+    fn create_params(&self, path: &str, has_log: bool) -> Value {
+        let mut v = if has_log {
+            self.params()
+        } else {
+            json!({
+                "zoom": false, "trim_idle": false, "typing_speedup": false,
+                "shortcut_badges": false, "click_rings": false,
+            })
+        };
+        v["path"] = json!(path);
+        v["output"] = json!(polished_path(path));
+        v["silence"] = json!(self.silence);
+        v["fillers"] = json!(self.fillers);
+        v["captions"] = json!(self.captions);
+        v["denoise"] = json!(self.denoise);
+        v
+    }
+}
+
+/// Subtitles or a transcript already exist next to the recording.
+fn has_transcript(video: &str) -> bool {
+    let p = Path::new(video);
+    p.with_extension("transcript.json").is_file() || p.with_extension("captions.json").is_file()
+}
 fn polished_path(video: &str) -> String {
     let p = Path::new(video);
     let stem = p
         .file_stem()
         .map_or_else(|| "video".to_string(), |s| s.to_string_lossy().into_owned());
     p.with_file_name(format!("{stem}-polished.mp4"))
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn speech_path(video: &str, suffix: &str) -> String {
-    let p = Path::new(video);
-    let stem = p
-        .file_stem()
-        .map_or_else(|| "video".to_string(), |s| s.to_string_lossy().into_owned());
-    p.with_file_name(format!("{stem}-{suffix}.mp4"))
         .to_string_lossy()
         .into_owned()
 }
@@ -141,144 +198,167 @@ impl UiApp {
             self.poll_polish(ctx);
         }
         contrast_widgets(ui);
-        let mut render = false;
-        let out_name = Path::new(&polished_path(&path))
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
-            ui.label(egui::RichText::new("Auto-polish").strong());
-            let Some(info) = self.polish.events.clone() else {
-                ui.weak("No event log for this recording. Record with Auto-polish on.");
-                return;
-            };
-            ui.weak(info);
-            ui.separator();
-            let p = &mut self.polish;
-            ui.checkbox(&mut p.zoom, "Zoom on clicks").on_hover_text(
-                "Glide in on each click and back out, with a ring where you clicked",
-            );
-            ui.checkbox(&mut p.trim, "Cut idle")
-                .on_hover_text("Remove stretches where nothing happens");
-            ui.checkbox(&mut p.typing, "Speed up typing")
-                .on_hover_text("Play long typing runs at 3x");
-            ui.checkbox(&mut p.badges, "Shortcut badges")
-                .on_hover_text("Show keyboard shortcuts such as Ctrl+S on screen");
-        });
-        if self.polish.events.is_none() {
-            return;
-        }
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 10.0;
-            let p = &mut self.polish;
-            ui.weak("Frame");
-            egui::ComboBox::from_id_salt("polish_aspect")
-                .selected_text(ASPECTS[p.aspect.min(ASPECTS.len() - 1)].1)
-                .show_ui(ui, |ui| {
-                    for (i, (_, label)) in ASPECTS.iter().enumerate() {
-                        ui.selectable_value(&mut p.aspect, i, *label);
-                    }
-                })
-                .response
-                .on_hover_text("Shape of the finished video");
-            egui::ComboBox::from_id_salt("polish_cursor")
-                .selected_text(CURSORS[p.cursor.min(CURSORS.len() - 1)].1)
-                .show_ui(ui, |ui| {
-                    for (i, (_, label)) in CURSORS.iter().enumerate() {
-                        ui.selectable_value(&mut p.cursor, i, *label);
-                    }
-                });
-            ui.weak("Padding");
-            ui.add(egui::Slider::new(&mut p.padding, 0..=25).suffix(" %"))
-                .on_hover_text("Space around the picture");
-            ui.weak("Corners");
-            ui.add(egui::Slider::new(&mut p.corner, 0..=25).suffix(" %"))
-                .on_hover_text("Rounded corners on the picture");
-            ui.separator();
-            let label = if p.running {
-                "Rendering..."
-            } else {
-                "Render polished video"
-            };
-            let btn = egui::Button::new(
-                egui::RichText::new(label)
-                    .strong()
-                    .color(egui::Color32::WHITE),
+        let has_log = self.polish.events.is_some();
+        let idle = !self.polish.running;
+        let mut create = false;
+        let mut transcribe = false;
+        let label = |ui: &mut egui::Ui, name: &str, tip: &str| {
+            ui.add_sized(
+                [74.0, 20.0],
+                egui::Label::new(egui::RichText::new(name).strong()),
             )
-            .fill(theme::ACCENT)
-            .min_size(egui::vec2(0.0, 28.0));
-            if ui
-                .add_enabled(!p.running, btn)
-                .on_hover_text(format!("Saves {out_name} next to the recording"))
-                .clicked()
-            {
-                render = true;
-            }
+            .on_hover_text(tip);
+        };
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Make video").strong().size(14.0));
+            match &self.polish.events {
+                Some(info) => ui.weak(format!("{info} recorded")),
+                None => ui.weak(
+                    "No click log: picture effects are unavailable, sound and subtitles still work",
+                ),
+            };
         });
-        let mut speech: Option<(&str, Value, &str)> = None;
+
+        // Picture
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            ui.label(egui::RichText::new("Speech").strong())
-                .on_hover_text("Transcribe uses the speech server in Settings > Speech, or the Windows recognizer when none is set (see docs/audio.md)");
+            label(ui, "Picture", "Effects drawn from your clicks and typing");
             let p = &mut self.polish;
-            let idle = !p.running;
-            if ui
-                .add_enabled(idle, egui::Button::new("Transcribe"))
-                .on_hover_text("Write subtitles (.srt) from the speech")
-                .clicked()
-            {
-                speech = Some(("video.transcribe", json!({}), "Transcribing..."));
-            }
-            if ui
-                .add_enabled(idle, egui::Button::new("Cut silences"))
-                .on_hover_text("Save a copy without the pauses, using the options on the right")
-                .clicked()
-            {
-                let v = json!({
-                    "fillers": p.fillers, "captions": p.captions, "denoise": p.denoise,
-                    "output": speech_path(&path, "trimmed"),
-                });
-                speech = Some(("video.silence.cut", v, "Cutting silences..."));
-            }
-            if ui
-                .add_enabled(idle, egui::Button::new("Burn subtitles"))
-                .on_hover_text("Save a copy with the subtitles drawn on the picture")
-                .clicked()
-            {
-                let v = json!({"output": speech_path(&path, "subtitled")});
-                speech = Some(("video.captions.burn", v, "Adding subtitles..."));
-            }
-            if ui
-                .add_enabled(idle, egui::Button::new("Reduce noise"))
-                .on_hover_text("Save a copy with background noise reduced")
-                .clicked()
-            {
-                let v = json!({"output": speech_path(&path, "clean")});
-                speech = Some(("video.audio.denoise", v, "Reducing noise..."));
-            }
-            ui.separator();
-            ui.weak("Cut silences also:");
-            ui.checkbox(&mut p.fillers, "removes um / uh");
-            ui.checkbox(&mut p.captions, "adds subtitles");
-            ui.checkbox(&mut p.denoise, "reduces noise");
+            ui.add_enabled_ui(has_log && idle, |ui| {
+                ui.checkbox(&mut p.zoom, "Zoom on clicks").on_hover_text(
+                    "Glide in on each click and back out, with a ring where you clicked",
+                );
+                ui.checkbox(&mut p.trim, "Cut idle")
+                    .on_hover_text("Remove stretches where nothing happens");
+                ui.checkbox(&mut p.typing, "Speed up typing")
+                    .on_hover_text("Play long typing runs at 3x");
+                ui.checkbox(&mut p.badges, "Shortcut badges")
+                    .on_hover_text("Show keyboard shortcuts such as Ctrl+S on screen");
+                egui::ComboBox::from_id_salt("polish_aspect")
+                    .selected_text(ASPECTS[p.aspect.min(ASPECTS.len() - 1)].1)
+                    .show_ui(ui, |ui| {
+                        for (i, (_, l)) in ASPECTS.iter().enumerate() {
+                            ui.selectable_value(&mut p.aspect, i, *l);
+                        }
+                    })
+                    .response
+                    .on_hover_text("Shape of the finished video");
+                egui::ComboBox::from_id_salt("polish_cursor")
+                    .selected_text(CURSORS[p.cursor.min(CURSORS.len() - 1)].1)
+                    .show_ui(ui, |ui| {
+                        for (i, (_, l)) in CURSORS.iter().enumerate() {
+                            ui.selectable_value(&mut p.cursor, i, *l);
+                        }
+                    });
+                ui.weak("Padding");
+                ui.add(egui::Slider::new(&mut p.padding, 0..=25).suffix(" %"))
+                    .on_hover_text("Space around the picture");
+                ui.weak("Corners");
+                ui.add(egui::Slider::new(&mut p.corner, 0..=25).suffix(" %"))
+                    .on_hover_text("Rounded corners on the picture");
+            });
         });
-        self.steps_row(ui, &path);
-        if let Some((cmd, mut params, msg)) = speech {
-            params["path"] = json!(path);
-            if self.run(cmd, params).is_some() {
-                self.polish.running = true;
-                self.status = msg.into();
+
+        // Sound
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            label(ui, "Sound", "Clean up the audio and cut dead air");
+            let p = &mut self.polish;
+            ui.add_enabled_ui(idle, |ui| {
+                ui.checkbox(&mut p.denoise, "Reduce noise")
+                    .on_hover_text("Suppress steady background noise");
+                ui.checkbox(&mut p.silence, "Cut silences")
+                    .on_hover_text("Remove pauses longer than a second");
+                ui.checkbox(&mut p.fillers, "Remove um / uh")
+                    .on_hover_text("Cut filler words (needs a transcript; made automatically)");
+            });
+        });
+
+        // Subtitles
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            label(
+                ui,
+                "Subtitles",
+                "Words from the speech, drawn on the picture",
+            );
+            let p = &mut self.polish;
+            ui.add_enabled_ui(idle, |ui| {
+                ui.checkbox(&mut p.captions, "Burn in subtitles")
+                    .on_hover_text("Draw the subtitles on the video (transcribed automatically)");
+            });
+            if ui
+                .add_enabled(idle, egui::Button::new("Transcribe only"))
+                .on_hover_text("Just write the subtitle files next to the recording")
+                .clicked()
+            {
+                transcribe = true;
+            }
+        });
+
+        // Create
+        let todo = self.polish.todo(has_log);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            let (text, color) = if self.polish.running {
+                ("Working...", egui::Color32::WHITE)
+            } else {
+                ("Create video", egui::Color32::WHITE)
+            };
+            let btn = egui::Button::new(egui::RichText::new(text).strong().color(color))
+                .fill(theme::ACCENT)
+                .min_size(egui::vec2(140.0, 30.0));
+            if ui
+                .add_enabled(idle && !todo.is_empty(), btn)
+                .on_hover_text("Everything ticked above, in one new file next to the recording")
+                .clicked()
+            {
+                create = true;
+            }
+            if todo.is_empty() {
+                ui.weak("Tick something above to get started");
+            } else {
+                ui.weak(format!(
+                    "{} -> {}",
+                    todo.join(", "),
+                    Path::new(&polished_path(&path))
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                ));
+            }
+        });
+
+        if transcribe
+            && self
+                .run("video.transcribe", json!({"path": path}))
+                .is_some()
+        {
+            self.polish.running = true;
+            self.status = "Transcribing...".into();
+        }
+        if create {
+            let params = self.polish.create_params(&path, has_log);
+            if self.polish.needs_transcript() && !has_transcript(&path) {
+                if self
+                    .run("video.transcribe", json!({"path": path}))
+                    .is_some()
+                {
+                    self.polish.running = true;
+                    self.polish.pending = Some(params);
+                    self.status = "Step 1 of 2: transcribing...".into();
+                }
+            } else {
+                self.start_render(params);
             }
         }
-        if render {
-            let mut params = self.polish.params();
-            params["path"] = json!(path);
-            params["output"] = json!(polished_path(&path));
-            if self.run("video.polish", params).is_some() {
-                self.polish.running = true;
-                self.status = "Polishing video...".into();
-            }
+    }
+
+    fn start_render(&mut self, params: Value) {
+        if self.run("video.polish", params).is_some() {
+            self.polish.running = true;
+            self.status = "Creating video...".into();
         }
     }
 
@@ -299,8 +379,11 @@ impl UiApp {
             return;
         }
         self.polish.running = false;
-        if self.step_finished(&st) {
-            return;
+        if let Some(params) = self.polish.pending.take() {
+            if st["error"].is_null() {
+                self.start_render(params);
+                return;
+            }
         }
         self.status = match st["error"].as_str() {
             Some(e) => format!("Polish failed: {e}"),
@@ -353,6 +436,50 @@ mod tests {
         assert_eq!(v["padding_pct"], 8);
         p.aspect = 99; // out of range picks the last entry instead of panicking
         assert_eq!(p.params()["aspect"], "wide");
+    }
+
+    #[test]
+    fn one_render_carries_picture_sound_and_subtitle_choices() {
+        let mut p = PolishUi {
+            denoise: true,
+            silence: true,
+            fillers: true,
+            captions: true,
+            ..PolishUi::default()
+        };
+        let v = p.create_params("C:\\v\\clip.mp4", true);
+        assert_eq!(v["zoom"], true);
+        assert_eq!(v["denoise"], true);
+        assert_eq!(v["silence"], true);
+        assert_eq!(v["fillers"], true);
+        assert_eq!(v["captions"], true);
+        assert!(v["output"].as_str().unwrap().ends_with("clip-polished.mp4"));
+        assert!(p.needs_transcript());
+        // Without a click log the picture effects are switched off, the sound ones stay.
+        let v = p.create_params("C:\\v\\clip.mp4", false);
+        assert_eq!(v["zoom"], false);
+        assert_eq!(v["trim_idle"], false);
+        assert_eq!(v["denoise"], true);
+        p.fillers = false;
+        p.captions = false;
+        assert!(!p.needs_transcript());
+    }
+
+    #[test]
+    fn the_summary_lists_what_is_ticked() {
+        let mut p = PolishUi {
+            zoom: false,
+            trim: false,
+            typing: false,
+            badges: false,
+            ..PolishUi::default()
+        };
+        assert!(p.todo(true).is_empty());
+        p.denoise = true;
+        p.captions = true;
+        p.aspect = 2;
+        assert_eq!(p.todo(true), vec!["frame", "less noise", "subtitles"]);
+        assert_eq!(p.todo(false), vec!["less noise", "subtitles"]);
     }
 
     #[test]

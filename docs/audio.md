@@ -9,11 +9,11 @@ These run inside screenIt with nothing else installed:
 | Feature | Where | Notes |
 |---|---|---|
 | Record microphone and system sound | Capture bar chips, Settings > Recording | Windows audio (WASAPI). Pick the default devices in Windows Sound settings. |
-| Cut silences | Editor, Speech row, **Cut silences** | Finds quiet stretches in the recording's own sound. |
-| Reduce noise | Editor, Speech row, **Reduce noise** | Saves `clip-clean.mp4`. |
+| Cut silences | Editor, Make video > Sound | Finds quiet stretches in the recording's own sound. |
+| Reduce noise | Editor, Make video > Sound | Part of the one new video. |
 | Narration with the Windows voice | `video.narrate` | Used when the text-to-speech URL is empty. |
-| **Transcribe** with built-in Whisper | Editor, Speech row | After a one-time model download (see below). Offline, accurate. |
-| **Transcribe** with the Windows recognizer | Editor, Speech row | Used when the speech-to-text URL is empty (or the word `windows`). Offline, basic accuracy, only the languages installed under Settings > Time & language > Speech. |
+| **Transcribe** with built-in Whisper | Editor, Make video > Subtitles | After a one-time model download (see below). Offline, accurate. |
+| **Transcribe** with the Windows recognizer | Editor, Make video > Subtitles | Used when the speech-to-text URL is empty (or the word `windows`). Offline, basic accuracy, only the languages installed under Settings > Time & language > Speech. |
 
 ## Built-in Whisper (recommended)
 
@@ -39,15 +39,19 @@ two with `base` on a modern PC.
 | Windows recognizer | the old built-in Windows engine: no download, basic accuracy |
 | Speech server | the server URL below |
 
-## Several steps in a row
+## One video with everything
 
-The editor's Speech area has a **Steps** row. Add steps with **+ Add step**, reorder them with
-`<` and `>`, then press **Run steps**. Each step works on the file the previous step made,
-so `Reduce noise > Transcribe > Cut silences > Burn subtitles` transcribes the cleaned sound
-and burns subtitles that match the cut video. When a step needs subtitles of a file that has
-none, a Transcribe step is added on its own. Only the final `clip-stepsN.mp4` is kept.
+The editor's **Make video** panel combines picture, sound and subtitles in a single render:
 
-Tip for the Windows recognizer: put **Reduce noise** before **Transcribe**.
+| Group | Options |
+|---|---|
+| Picture | zoom on clicks, cut idle, speed up typing, shortcut badges, frame shape, cursor, padding, corners (needs the click log) |
+| Sound | reduce noise, cut silences, remove um / uh |
+| Subtitles | burn in subtitles |
+
+Tick what you want and press **Create video**. screenIt does the work in a sensible fixed order: it transcribes first when filler cuts or subtitles need it, then cuts, cleans the sound and draws the picture and subtitles in one pass, so the subtitles line up with the cut video. The result is saved as `clip-polished.mp4` next to the recording. **Transcribe only** just writes the subtitle files.
+
+Sound and subtitles also work on recordings without a click log; the picture options are greyed out for those.
 
 ## What needs a speech server
 
@@ -59,7 +63,7 @@ the OpenAI audio API. screenIt does not ship a model. A configured server always
 | Feature | Needs |
 |---|---|
 | **Transcribe** (writes `clip.transcript.json` and `clip.captions.json`) | speech-to-text server |
-| **Burn subtitles** | a transcript (run Transcribe first) |
+| **Burn in subtitles** | a transcript (made automatically) |
 | Cut silences > **removes um / uh** | a transcript |
 | Cut silences > **adds subtitles** | a transcript |
 | Narration with another voice | text-to-speech server |
