@@ -135,6 +135,16 @@ impl SpeechSettings {
                 .any(|w| u.eq_ignore_ascii_case(w))
     }
 
+    /// True when transcription should use the built-in Windows recognizer: the URL is empty or
+    /// says so in words (same words as the voice).
+    pub fn uses_os_stt(&self) -> bool {
+        let u = self.stt_url.trim();
+        u.is_empty()
+            || ["windows", "system", "built-in", "builtin", "os", "default"]
+                .iter()
+                .any(|w| u.eq_ignore_ascii_case(w))
+    }
+
     pub fn stt_config(&self) -> screenit_record::speech::SpeechConfig {
         screenit_record::speech::SpeechConfig {
             url: self.stt_url.trim().to_string(),

@@ -12,11 +12,14 @@ These run inside screenIt with nothing else installed:
 | Cut silences | Editor, Speech row, **Cut silences** | Finds quiet stretches in the recording's own sound. |
 | Reduce noise | Editor, Speech row, **Reduce noise** | Saves `clip-clean.mp4`. |
 | Narration with the Windows voice | `video.narrate` | Used when the text-to-speech URL is empty. |
+| **Transcribe** with the Windows recognizer | Editor, Speech row | Used when the speech-to-text URL is empty (or the word `windows`). Offline, basic accuracy, only the languages installed under Settings > Time & language > Speech. |
 
 ## What needs a speech server
 
-Subtitles and filler-word cuts need speech-to-text. screenIt does not ship a model. It talks to
-a local server that speaks the OpenAI audio API:
+Subtitles and filler-word cuts need speech-to-text. With no server set, screenIt uses the
+recognizer built into Windows (see above): good enough for short, clear speech. For better
+accuracy, longer recordings, other languages or accents, point it at a local server that speaks
+the OpenAI audio API. screenIt does not ship a model. A configured server always wins:
 
 | Feature | Needs |
 |---|---|
@@ -71,7 +74,7 @@ All of these live in `%LOCALAPPDATA%\screenIt\settings.json` under `speech`:
 
 | Key | Meaning | Default |
 |---|---|---|
-| `stt_url` | speech-to-text base URL, ending in `/v1` | empty (feature off) |
+| `stt_url` | speech-to-text base URL, ending in `/v1`; empty or `windows` uses the built-in Windows recognizer | empty (Windows recognizer) |
 | `stt_model` | model name sent to the server | empty |
 | `stt_language` | language hint (`en`, `ar`) | empty (detect) |
 | `tts_url` | text-to-speech base URL; empty or the word `windows` uses the built-in Windows voice | empty (Windows voice) |

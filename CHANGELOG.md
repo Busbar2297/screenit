@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.30
+
+- Transcribe works without a server: with the speech-to-text URL empty (or `windows`) screenIt uses the recognizer built into Windows, offline (basic accuracy). A configured server still wins.
+- The Library opens maximized from every view, and Settings/About open at their proper size (the window is now maximized and restored directly).
+
 ## 0.2.29
 
 - Typing "windows" in the Text-to-speech URL box now selects the built-in Windows voice (an empty box did already). Settings apply at once; no restart needed.

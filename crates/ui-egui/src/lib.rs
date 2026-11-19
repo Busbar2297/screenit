@@ -190,6 +190,10 @@ pub struct UiApp {
     tray: bool,
     /// The parked window has been out of the foreground once, so the next activation is the user.
     tray_background: bool,
+    /// Size (points) a just-opened fixed view should have, and how many frames to keep trying.
+    view_goal: Option<(f32, f32, u8)>,
+    /// Frames left to keep asking for a maximized library window.
+    max_goal: u8,
     lib_query: String,
     pub(crate) thumbs: HashMap<u64, Option<egui::TextureHandle>>,
     video: Option<library_panel::VideoPlayer>,
@@ -280,6 +284,8 @@ impl UiApp {
             view: View::Compact,
             tray: false,
             tray_background: false,
+            view_goal: None,
+            max_goal: 0,
             lib_query: String::new(),
             thumbs: HashMap::new(),
             video: None,
@@ -369,21 +375,74 @@ impl UiApp {
     /// Resize the single window for a view and switch to it.
     pub(crate) fn enter_view(&mut self, ctx: &egui::Context, view: View) {
         let was_grow = view_can_grow(self.view);
+        let changed = self.view != view;
         self.view = view;
-        if was_grow && !view_can_grow(view) {
-            // Coming back from a big view: the scale nudge leaves a far-off size alone, so
-            // the capture bar kept the tutorial or editor size. Set it outright.
-            if screenit_platform::window::is_maximized() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
-            }
-            let [w, h] = match view {
-                View::Settings => [960.0, 660.0],
-                View::About => [720.0, 560.0],
-                _ => COMPACT_SIZE,
-            };
-            let _ = screenit_platform::window::set_client_size(w, h);
+        if changed {
+            self.size_for_new_view(view, was_grow);
         }
         self.apply_view_size(ctx);
+    }
+
+    /// The scale nudge leaves a far-off size alone, so a view change sets its size outright:
+    /// fixed views get their own size back, the library opens maximized, the editor opens large.
+    fn size_for_new_view(&mut self, view: View, was_grow: bool) {
+        let zoomed = screenit_platform::window::is_maximized();
+        if view_can_grow(view) {
+            self.view_goal = None;
+            if was_grow && view != View::Library {
+                return;
+            }
+            match view {
+                View::Library => {
+                    screenit_platform::window::set_main_maximized(true);
+                    self.max_goal = 90;
+                }
+                View::Editor => {
+                    let [w, h] = EDITOR_SIZE;
+                    let (w, h) = screenit_platform::window::fit_points(w, h);
+                    let _ = screenit_platform::window::set_client_size(w, h);
+                }
+                _ => {}
+            }
+            return;
+        }
+        self.max_goal = 0;
+        if zoomed {
+            screenit_platform::window::set_main_maximized(false);
+        }
+        let [w, h] = match view {
+            View::Settings => [960.0, 660.0],
+            View::About => [720.0, 560.0],
+            _ => COMPACT_SIZE,
+        };
+        let (w, h) = screenit_platform::window::fit_points(w, h);
+        // Un-maximizing is asynchronous and restores the old size, so keep setting this one.
+        self.view_goal = Some((w, h, 90));
+        let _ = screenit_platform::window::set_client_size(w, h);
+    }
+
+    /// Apply `view_goal` once the window is no longer maximized.
+    fn follow_view_goal(&mut self, ctx: &egui::Context) {
+        if self.max_goal > 0 {
+            if self.view == View::Library && !screenit_platform::window::is_maximized() {
+                screenit_platform::window::set_main_maximized(true);
+                self.max_goal -= 1;
+                ctx.request_repaint();
+            } else {
+                self.max_goal = 0;
+            }
+        }
+        let Some((w, h, left)) = self.view_goal else {
+            return;
+        };
+        if screenit_platform::window::is_maximized() {
+            ctx.request_repaint();
+            return;
+        }
+        let done = screenit_platform::window::set_client_size(w, h);
+        let left = left.saturating_sub(1);
+        self.view_goal = (left > 0 && !(done && left < 85)).then_some((w, h, left));
+        ctx.request_repaint();
     }
 
     fn apply_view_size(&self, _ctx: &egui::Context) -> bool {
@@ -953,6 +1012,7 @@ impl eframe::App for UiApp {
         self.follow_monitor_scale(ctx);
         self.sync_maximize_button(ctx);
         self.watch_parked_window(ctx);
+        self.follow_view_goal(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

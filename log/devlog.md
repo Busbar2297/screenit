@@ -331,3 +331,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 - SpeechSettings::uses_os_voice: tts_url of windows/system/built-in/os/default means the OS voice; before, the word was used as a URL and narration failed.
 
+
+
+## 2026-11-19 - Release 0.2.30
+
+- platform/stt.rs: SAPI dictation over a temp WAV (SpInprocRecognizer + SpStream), phrase times from the event offset, words spread by length; services.stt_fallback; SpeechSettings::uses_os_stt; test speaks with WinTts and recognizes it.
+- Window: set_main_maximized (ShowWindow) replaces the egui Maximized command, which was dropped on Settings -> Library. Release builds sometimes crash rustc at link (0xc0000005); retry or -j 1.

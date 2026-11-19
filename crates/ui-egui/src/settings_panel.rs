@@ -477,7 +477,7 @@ impl UiApp {
             ui,
             "Speech-to-text URL",
             &mut sp.stt_url,
-            "http://localhost:8000/v1",
+            "empty or windows = Windows recognizer (basic); or http://localhost:8000/v1",
         );
         field(
             ui,

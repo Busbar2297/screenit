@@ -95,6 +95,16 @@ pub fn work_area_at(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
     Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
 }
 
+/// Maximize or restore the main window directly, without waiting on the toolkit.
+pub fn set_main_maximized(on: bool) {
+    let Some(h) = main_window() else { return };
+    if is_iconic() {
+        return;
+    }
+    // SAFETY: valid window handle owned by this process.
+    unsafe { ShowWindow(h, if on { SW_SHOWMAXIMIZED } else { SW_RESTORE }) };
+}
+
 /// Where the mouse pointer is, in physical pixels.
 pub fn cursor_pos() -> Option<(i32, i32)> {
     let mut p = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };

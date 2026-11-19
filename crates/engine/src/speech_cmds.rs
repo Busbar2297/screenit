@@ -156,16 +156,16 @@ fn transcribe(s: &mut Session, p: &Value) -> CmdResult {
     let a = Args::new(p, &["path", "language"])?;
     let path = video_path(&a)?;
     let sp = &s.settings.speech;
-    if sp.stt_url.trim().is_empty() {
-        return Err(CommandError::Failed(
-            "no speech-to-text server: set one in Settings > Speech".into(),
-        ));
+    let stt = if sp.uses_os_stt() {
+        s.services.stt_fallback.clone()
+    } else {
+        s.services.stt.clone()
     }
-    let stt = s
-        .services
-        .stt
-        .clone()
-        .ok_or_else(|| CommandError::Disabled("no speech-to-text available".into()))?;
+    .ok_or_else(|| {
+        CommandError::Failed(
+            "no speech-to-text available: set a server in Settings > Speech".into(),
+        )
+    })?;
     let cfg = sp.stt_config();
     let language = a
         .opt_str("language")?
@@ -609,6 +609,31 @@ mod tests {
         assert_eq!(st["running"], false, "{st}");
         assert!(st["error"].is_null(), "{st}");
         st["result"].clone()
+    }
+
+    #[test]
+    fn without_a_server_transcribe_uses_the_os_recognizer() {
+        let v = clip("os");
+        let (mut s, _) = session();
+        s.services.stt_fallback = Some(Arc::new(screenit_testkit::FakeStt(Some(Transcript {
+            language: String::new(),
+            text: "built in".into(),
+            words: vec![Word {
+                start_ms: 0,
+                end_ms: 500,
+                text: "built".into(),
+            }],
+        }))));
+        for url in ["", "windows"] {
+            s.settings.speech.stt_url = url.into();
+            s.dispatch("video.transcribe", &json!({"path": v})).unwrap();
+            let r = wait(&mut s);
+            assert_eq!(r["words"], 1, "{r}");
+        }
+        // A configured server wins over the OS recognizer.
+        s.settings.speech.stt_url = "http://localhost:1/v1".into();
+        s.dispatch("video.transcribe", &json!({"path": v})).unwrap();
+        assert_eq!(wait(&mut s)["words"], 3);
     }
 
     #[test]
