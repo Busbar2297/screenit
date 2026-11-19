@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.29
+
+- Typing "windows" in the Text-to-speech URL box now selects the built-in Windows voice (an empty box did already). Settings apply at once; no restart needed.
+
 ## 0.2.28
 
 - Zoom on clicks works again: a click whose element is the whole window zooms on the click point, and clicks outside the recorded area are ignored.

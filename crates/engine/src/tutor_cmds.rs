@@ -761,7 +761,7 @@ fn produce(s: &mut Session, p: &Value) -> CmdResult {
     let narrate = a.bool("narrate", false)?;
     let voice = if narrate {
         let sp = &s.settings.speech;
-        let tts = if sp.tts_url.trim().is_empty() {
+        let tts = if sp.uses_os_voice() {
             s.services.tts_fallback.clone()
         } else {
             s.services.tts.clone()

@@ -74,7 +74,7 @@ All of these live in `%LOCALAPPDATA%\screenIt\settings.json` under `speech`:
 | `stt_url` | speech-to-text base URL, ending in `/v1` | empty (feature off) |
 | `stt_model` | model name sent to the server | empty |
 | `stt_language` | language hint (`en`, `ar`) | empty (detect) |
-| `tts_url` | text-to-speech base URL | empty (Windows voice) |
+| `tts_url` | text-to-speech base URL; empty or the word `windows` uses the built-in Windows voice | empty (Windows voice) |
 | `tts_model`, `tts_voice` | model and voice for narration | empty |
 | `api_key` | sent as `Authorization: Bearer`; stored in plain text | empty |
 | `timeout_secs` | per request, 1 to 1800 | 300 |

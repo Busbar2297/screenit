@@ -495,7 +495,7 @@ impl UiApp {
             ui,
             "Text-to-speech URL",
             &mut sp.tts_url,
-            "empty = Windows voice",
+            "empty or windows = Windows voice",
         );
         field(ui, "Text-to-speech model", &mut sp.tts_model, "e.g. tts-1");
         field(ui, "Voice", &mut sp.tts_voice, "e.g. alloy");

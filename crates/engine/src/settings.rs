@@ -125,6 +125,16 @@ impl Default for SpeechSettings {
 }
 
 impl SpeechSettings {
+    /// True when narration should use the built-in Windows voice: the URL is empty, or says so
+    /// in words ("windows", "system", "built-in", "os").
+    pub fn uses_os_voice(&self) -> bool {
+        let u = self.tts_url.trim();
+        u.is_empty()
+            || ["windows", "system", "built-in", "builtin", "os", "default"]
+                .iter()
+                .any(|w| u.eq_ignore_ascii_case(w))
+    }
+
     pub fn stt_config(&self) -> screenit_record::speech::SpeechConfig {
         screenit_record::speech::SpeechConfig {
             url: self.stt_url.trim().to_string(),
@@ -483,6 +493,18 @@ mod tests {
         // an old file without the section still loads
         let old: Settings = serde_json::from_str(r#"{"version":1}"#).unwrap();
         assert_eq!(old.speech, SpeechSettings::default());
+    }
+
+    #[test]
+    fn the_word_windows_selects_the_os_voice() {
+        let mut sp = SpeechSettings::default();
+        assert!(sp.uses_os_voice());
+        for w in [" Windows ", "windows", "System", "built-in"] {
+            sp.tts_url = w.into();
+            assert!(sp.uses_os_voice(), "{w}");
+        }
+        sp.tts_url = "http://localhost:8000/v1".into();
+        assert!(!sp.uses_os_voice());
     }
 
     #[test]
