@@ -86,6 +86,60 @@ pub fn wav_16k_mono(pcm: &[i16]) -> Vec<u8> {
     out
 }
 
+/// Raise quiet speech to a steady level (about -18 dBFS) without clipping. Recognizers that do
+/// no level control of their own (the Windows one) miss many words in a quiet recording.
+pub fn normalize_speech(samples: &mut [i16]) {
+    const BLOCK: usize = 320; // 20 ms at 16 kHz
+    const TARGET: f64 = 4_000.0;
+    let mut levels: Vec<f64> = samples
+        .chunks(BLOCK)
+        .map(|c| {
+            let e: f64 = c.iter().map(|v| f64::from(*v).powi(2)).sum();
+            (e / c.len().max(1) as f64).sqrt()
+        })
+        .filter(|r| *r > 30.0)
+        .collect();
+    if levels.is_empty() {
+        return;
+    }
+    levels.sort_by(f64::total_cmp);
+    let speech = levels.get(levels.len() * 9 / 10).copied().unwrap_or(TARGET);
+    let peak = samples
+        .iter()
+        .map(|v| i32::from(*v).unsigned_abs())
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    let gain = (TARGET / speech.max(1.0))
+        .min(30_000.0 / f64::from(peak))
+        .min(30.0);
+    if !gain.is_finite() || gain <= 1.1 {
+        return;
+    }
+    for v in samples.iter_mut() {
+        *v = (f64::from(*v) * gain).clamp(-32_000.0, 32_000.0) as i16;
+    }
+}
+
+/// [`normalize_speech`] over the samples of a 16-bit WAV made by [`wav_16k_mono`].
+pub fn normalize_wav(wav: &[u8]) -> Vec<u8> {
+    if wav.len() <= 44 || wav.get(0..4) != Some(b"RIFF") {
+        return wav.to_vec();
+    }
+    let (head, body) = wav.split_at(44);
+    let mut s: Vec<i16> = body
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    normalize_speech(&mut s);
+    let mut out = Vec::with_capacity(wav.len());
+    out.extend_from_slice(head);
+    for v in s {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
 /// Largest WAV accepted from a server (about 10 minutes of 48 kHz stereo).
 const MAX_WAV: usize = 120_000_000;
 
@@ -234,6 +288,39 @@ pub fn srt(lines: &[Line]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quiet_speech_is_raised_without_clipping_and_silence_is_left_alone() {
+        let mut quiet: Vec<i16> = (0..16_000)
+            .map(|i| if (i / 20) % 2 == 0 { 300 } else { -300 })
+            .collect();
+        normalize_speech(&mut quiet);
+        let peak = quiet.iter().map(|v| v.unsigned_abs()).max().unwrap();
+        assert!(peak > 3_000 && peak <= 32_000, "{peak}");
+        let mut silence = vec![0i16; 1000];
+        normalize_speech(&mut silence);
+        assert!(silence.iter().all(|v| *v == 0));
+        let mut loud: Vec<i16> = (0..3200)
+            .map(|i| if i % 2 == 0 { 20_000 } else { -20_000 })
+            .collect();
+        let before = loud.clone();
+        normalize_speech(&mut loud);
+        assert_eq!(loud, before);
+        normalize_speech(&mut []);
+    }
+
+    #[test]
+    fn normalize_wav_keeps_the_header_and_ignores_garbage() {
+        let pcm: Vec<i16> = (0..9600)
+            .map(|i| if i % 4 < 2 { 200 } else { -200 })
+            .collect();
+        let wav = wav_16k_mono(&pcm);
+        let out = normalize_wav(&wav);
+        assert_eq!(out.len(), wav.len());
+        assert_eq!(out[..44], wav[..44]);
+        assert_ne!(out[44..], wav[44..]);
+        assert_eq!(normalize_wav(b"xx"), b"xx".to_vec());
+    }
 
     fn w(a: u64, b: u64, t: &str) -> Word {
         Word {

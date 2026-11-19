@@ -32,10 +32,12 @@ pub(crate) struct PolishUi {
     badges: bool,
     padding: u8,
     corner: u8,
-    running: bool,
-    fillers: bool,
-    captions: bool,
+    pub(crate) running: bool,
+    pub(crate) fillers: bool,
+    pub(crate) captions: bool,
     denoise: bool,
+    pub(crate) steps: Vec<crate::speech_steps::Step>,
+    pub(crate) chain: Option<crate::speech_steps::Chain>,
 }
 
 impl Default for PolishUi {
@@ -55,6 +57,8 @@ impl Default for PolishUi {
             fillers: false,
             captions: false,
             denoise: false,
+            steps: Vec::new(),
+            chain: None,
         }
     }
 }
@@ -216,7 +220,7 @@ impl UiApp {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             ui.label(egui::RichText::new("Speech").strong())
-                .on_hover_text("Needs a speech server: Settings > Speech (see docs/audio.md)");
+                .on_hover_text("Transcribe uses the speech server in Settings > Speech, or the Windows recognizer when none is set (see docs/audio.md)");
             let p = &mut self.polish;
             let idle = !p.running;
             if ui
@@ -259,6 +263,7 @@ impl UiApp {
             ui.checkbox(&mut p.captions, "adds subtitles");
             ui.checkbox(&mut p.denoise, "reduces noise");
         });
+        self.steps_row(ui, &path);
         if let Some((cmd, mut params, msg)) = speech {
             params["path"] = json!(path);
             if self.run(cmd, params).is_some() {
@@ -294,6 +299,9 @@ impl UiApp {
             return;
         }
         self.polish.running = false;
+        if self.step_finished(&st) {
+            return;
+        }
         self.status = match st["error"].as_str() {
             Some(e) => format!("Polish failed: {e}"),
             None => match st["result"]["video"].as_str() {

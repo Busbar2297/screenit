@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.31
+
+- New **Steps** row in the editor's Speech area: add Reduce noise, Transcribe, Cut silences and Burn subtitles in any order and run them in one go. Each step works on the previous result; a transcript is made automatically when a later step needs one; only the final video is kept.
+- The Windows recognizer hears quiet recordings better: speech is raised to a steady level before recognition.
+
 ## 0.2.30
 
 - Transcribe works without a server: with the speech-to-text URL empty (or `windows`) screenIt uses the recognizer built into Windows, offline (basic accuracy). A configured server still wins.

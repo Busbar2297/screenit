@@ -4,7 +4,7 @@
 //! better when one is available.
 
 use screenit_record::RecordError;
-use screenit_record::speech::{SpeechConfig, SpeechToText, Transcript, Word};
+use screenit_record::speech::{SpeechConfig, SpeechToText, Transcript, Word, normalize_wav};
 use std::time::{Duration, Instant};
 use windows::Win32::Media::Speech::{
     ISpRecoContext, ISpRecoResult, ISpRecognizer, ISpStream, SPEI_END_SR_STREAM, SPEI_RECOGNITION,
@@ -188,7 +188,7 @@ impl SpeechToText for WinStt {
         if wav.len() < 64 {
             return Err(RecordError::BadConfig("no audio to transcribe".into()));
         }
-        recognize(wav)
+        recognize(&normalize_wav(wav))
     }
 }
 

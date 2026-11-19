@@ -14,6 +14,16 @@ These run inside screenIt with nothing else installed:
 | Narration with the Windows voice | `video.narrate` | Used when the text-to-speech URL is empty. |
 | **Transcribe** with the Windows recognizer | Editor, Speech row | Used when the speech-to-text URL is empty (or the word `windows`). Offline, basic accuracy, only the languages installed under Settings > Time & language > Speech. |
 
+## Several steps in a row
+
+The editor's Speech area has a **Steps** row. Add steps with **+ Add step**, reorder them with
+`<` and `>`, then press **Run steps**. Each step works on the file the previous step made,
+so `Reduce noise > Transcribe > Cut silences > Burn subtitles` transcribes the cleaned sound
+and burns subtitles that match the cut video. When a step needs subtitles of a file that has
+none, a Transcribe step is added on its own. Only the final `clip-stepsN.mp4` is kept.
+
+Tip for the Windows recognizer: put **Reduce noise** before **Transcribe**.
+
 ## What needs a speech server
 
 Subtitles and filler-word cuts need speech-to-text. With no server set, screenIt uses the

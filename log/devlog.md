@@ -337,3 +337,9 @@ Smart Redact (OCR + email/phone/card(Luhn)/ssn/ip/url scanners + custom terms, s
 
 - platform/stt.rs: SAPI dictation over a temp WAV (SpInprocRecognizer + SpStream), phrase times from the event offset, words spread by length; services.stt_fallback; SpeechSettings::uses_os_stt; test speaks with WinTts and recognizes it.
 - Window: set_main_maximized (ShowWindow) replaces the egui Maximized command, which was dropped on Settings -> Library. Release builds sometimes crash rustc at link (0xc0000005); retry or -j 1.
+
+
+## 2026-11-19 - Release 0.2.31
+
+- ui-egui/speech_steps.rs: ordered step queue over existing commands, advanced from poll_polish on job end; auto-inserts transcribe when burn / filler cut lacks a transcript of the current file; intermediates deleted.
+- record::speech::normalize_speech/normalize_wav (90th-percentile 20 ms RMS to ~-18 dBFS, peak and 30x caps) before SAPI.
