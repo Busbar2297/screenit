@@ -451,6 +451,8 @@ impl UiApp {
     }
 
     fn speech_form(&mut self, ui: &mut egui::Ui, s: &mut Settings) {
+        self.transcription_form(ui, s);
+        ui.add_space(12.0);
         let sp = &mut s.speech;
         ui.label(egui::RichText::new("Speech servers").strong());
         ui.label(
@@ -547,6 +549,135 @@ impl UiApp {
                     .color(MUTED),
             );
         });
+    }
+
+    /// Which transcriber to use, and the built-in Whisper models.
+    fn transcription_form(&mut self, ui: &mut egui::Ui, s: &mut Settings) {
+        const ENGINES: [(&str, &str); 4] = [
+            ("auto", "Automatic"),
+            ("whisper", "Built-in Whisper (best, offline)"),
+            ("windows", "Windows recognizer (basic)"),
+            ("server", "Speech server (below)"),
+        ];
+        let sp = &mut s.speech;
+        ui.label(egui::RichText::new("Transcription").strong());
+        ui.label(
+            egui::RichText::new(
+                "Automatic uses the speech server when its URL is set, otherwise built-in Whisper \
+                 once a model is downloaded, otherwise the Windows recognizer.",
+            )
+            .size(11.5)
+            .color(MUTED),
+        );
+        ui.add_space(6.0);
+        row(ui, "Transcribe with", |ui| {
+            let cur = ENGINES
+                .iter()
+                .find(|(k, _)| sp.stt_engine.eq_ignore_ascii_case(k))
+                .map_or("Automatic", |(_, l)| *l);
+            egui::ComboBox::from_id_salt("stt_engine")
+                .selected_text(cur)
+                .width(260.0)
+                .show_ui(ui, |ui| {
+                    for (k, l) in ENGINES {
+                        if ui.selectable_label(sp.stt_engine == k, l).clicked() {
+                            sp.stt_engine = k.to_string();
+                        }
+                    }
+                });
+        });
+        if self.model_dl {
+            self.poll_model_download(ui.ctx());
+        }
+        let models: Vec<(String, u64, String, bool)> = self
+            .session
+            .services
+            .stt_local
+            .as_ref()
+            .map(|l| l.models())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| (m.name, m.size_mb, m.note, m.installed))
+            .collect();
+        if models.is_empty() {
+            return;
+        }
+        row(ui, "Whisper model", |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let label = |m: &(String, u64, String, bool)| {
+                    format!(
+                        "{} - {} MB, {}{}",
+                        m.0,
+                        m.1,
+                        m.2,
+                        if m.3 { " (downloaded)" } else { "" }
+                    )
+                };
+                let cur = models
+                    .iter()
+                    .find(|m| m.0 == sp.whisper_model)
+                    .map_or_else(|| sp.whisper_model.clone(), label);
+                egui::ComboBox::from_id_salt("whisper_model")
+                    .selected_text(cur)
+                    .width(300.0)
+                    .show_ui(ui, |ui| {
+                        for m in &models {
+                            if ui
+                                .selectable_label(sp.whisper_model == m.0, label(m))
+                                .clicked()
+                            {
+                                sp.whisper_model = m.0.clone();
+                            }
+                        }
+                    });
+                let have = models.iter().any(|m| m.0 == sp.whisper_model && m.3);
+                if !have
+                    && ui
+                        .add_enabled(!self.model_dl, egui::Button::new("Download"))
+                        .on_hover_text("One-time download from Hugging Face; then works offline")
+                        .clicked()
+                {
+                    match self.session.dispatch(
+                        "speech.model.download",
+                        &json!({ "model": sp.whisper_model }),
+                    ) {
+                        Ok(_) => {
+                            self.model_dl = true;
+                            self.model_msg = format!("Downloading {}...", sp.whisper_model);
+                        }
+                        Err(e) => self.model_msg = e.to_string(),
+                    }
+                }
+                if have && !self.model_dl {
+                    ui.label(egui::RichText::new("Ready").color(theme::ACCENT2));
+                }
+            });
+        });
+        if !self.model_msg.is_empty() {
+            ui.label(egui::RichText::new(&self.model_msg).size(11.5).color(MUTED));
+        }
+    }
+
+    fn poll_model_download(&mut self, ctx: &egui::Context) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        let Ok(st) = self.session.dispatch("tutor.status", &json!({})) else {
+            return;
+        };
+        if st["running"].as_bool().unwrap_or(false) {
+            let (d, t) = (
+                st["progress_done"].as_u64().unwrap_or(0),
+                st["progress_total"].as_u64().unwrap_or(0),
+            );
+            if t > 0 {
+                self.model_msg = format!("Downloading... {d} of {t} MB");
+            }
+            return;
+        }
+        self.model_dl = false;
+        self.model_msg = match st["error"].as_str() {
+            Some(e) => format!("Download failed: {e}"),
+            None => "Downloaded. Transcribe now uses built-in Whisper.".into(),
+        };
     }
 
     /// Collect finished background jobs (connection test, OCR).

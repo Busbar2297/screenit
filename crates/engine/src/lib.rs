@@ -136,6 +136,8 @@ pub struct Services {
     pub tts_fallback: Option<Arc<dyn screenit_record::speech::TextToSpeech>>,
     /// The OS recognizer used when no speech-to-text server is configured.
     pub stt_fallback: Option<Arc<dyn screenit_record::speech::SpeechToText>>,
+    /// On-device transcription (built-in Whisper) with downloadable models.
+    pub stt_local: Option<Arc<dyn screenit_record::speech::LocalSpeech>>,
     /// Clock and sleeper for tutorial runs (virtual time in tests).
     pub pace: Arc<dyn screenit_tutor::Pace>,
 }
@@ -163,6 +165,7 @@ impl Default for Services {
             tts: None,
             tts_fallback: None,
             stt_fallback: None,
+            stt_local: None,
             pace: Arc::new(screenit_tutor::RealPace),
         }
     }

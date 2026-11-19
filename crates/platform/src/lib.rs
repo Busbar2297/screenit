@@ -72,6 +72,7 @@ pub fn services() -> Services {
         tts: Some(Arc::new(screenit_llm::HttpSpeech)),
         tts_fallback: Some(Arc::new(tts::WinTts)),
         stt_fallback: Some(Arc::new(stt::WinStt)),
+        stt_local: whisper(),
         ui: Some(Arc::new(automation::Win32Ui)),
         input: Some(Arc::new(automation::Win32Input::new())),
         launcher: Some(Arc::new(automation::Win32Launcher)),
@@ -86,6 +87,15 @@ pub fn services() -> Services {
         player: Some(Arc::new(playback::MfTrackPlayer::new())),
         ..Services::default()
     }
+}
+
+/// Built-in Whisper; models are downloaded into %LOCALAPPDATA%\screenIt\models.
+fn whisper() -> Option<Arc<dyn screenit_record::speech::LocalSpeech>> {
+    let dir = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from)?;
+    Some(Arc::new(screenit_whisper::Whisper::new(
+        dir.join("screenIt").join("models"),
+        Arc::new(update::WinUpdateHost),
+    )))
 }
 
 /// The updater for this install: downloads go to %LOCALAPPDATA%\screenIt\updates.

@@ -27,7 +27,8 @@ permissive licenses (MIT, Apache-2.0, or similar). The full dependency list is i
 
 - 
 nnoiseless (BSD-3-Clause), a Rust port of Xiph's RNNoise, reduces noise in recorded sound. The trained model is compiled into the crate.
-- Speech to text and text to speech talk to servers the user runs locally (for example whisper.cpp server or Speaches); no model is bundled with screenIt.
+- Built-in transcription runs OpenAI Whisper (model weights MIT, https://github.com/openai/whisper) with Hugging Face `candle` (MIT / Apache-2.0). The weights are not bundled: the user downloads them on request from https://huggingface.co/openai into `%LOCALAPPDATA%\screenIt\models`.
+- Speech to text and text to speech can also talk to servers the user runs (for example whisper.cpp server or Speaches).
 
 ## Platform
 

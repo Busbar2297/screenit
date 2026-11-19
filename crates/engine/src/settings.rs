@@ -98,6 +98,11 @@ pub struct SpeechSettings {
     /// Speech to text, e.g. `http://localhost:8000/v1` (whisper.cpp server, Speaches).
     pub stt_url: String,
     pub stt_model: String,
+    /// Which transcriber: `auto` (a server when a URL is set, else Whisper when downloaded,
+    /// else Windows), `whisper`, `windows` or `server`.
+    pub stt_engine: String,
+    /// Built-in Whisper model: `tiny`, `base` or `small`.
+    pub whisper_model: String,
     /// Spoken language hint (`en`, `ar`); empty to detect.
     pub stt_language: String,
     /// Text to speech server; empty means the built-in Windows voice.
@@ -114,6 +119,8 @@ impl Default for SpeechSettings {
         Self {
             stt_url: String::new(),
             stt_model: String::new(),
+            stt_engine: "auto".into(),
+            whisper_model: "base".into(),
             stt_language: String::new(),
             tts_url: String::new(),
             tts_model: String::new(),
@@ -137,6 +144,11 @@ impl SpeechSettings {
 
     /// True when transcription should use the built-in Windows recognizer: the URL is empty or
     /// says so in words (same words as the voice).
+    /// A real server address is set (not empty, not a word like `windows`).
+    pub fn has_stt_server(&self) -> bool {
+        !self.uses_os_stt()
+    }
+
     pub fn uses_os_stt(&self) -> bool {
         let u = self.stt_url.trim();
         u.is_empty()

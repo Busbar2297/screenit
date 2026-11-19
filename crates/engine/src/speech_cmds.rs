@@ -11,10 +11,11 @@ use screenit_geom::Rect;
 use screenit_record::audio_fx::{filler_ranges, merge_ranges, silent_ranges};
 use screenit_record::events::EventLog;
 use screenit_record::polish::{PolishOpts, PolishPlan};
-use screenit_record::speech::{Line, Transcript, srt, wav_16k_mono};
+use screenit_record::speech::{Line, SpeechConfig, SpeechToText, Transcript, srt, wav_16k_mono};
 use screenit_tutor::TutorError;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const MAX_LINES: usize = 5000;
 const MAX_LINE_CHARS: usize = 600;
@@ -152,21 +153,107 @@ fn fps_of(a: &Args<'_>) -> Result<u32, CommandError> {
     Ok(a.opt_u32("fps")?.unwrap_or(30).clamp(5, 60))
 }
 
+/// The transcriber the settings ask for, its config and a short name for messages.
+pub(crate) fn pick_stt(
+    s: &Session,
+) -> Result<(Arc<dyn SpeechToText>, SpeechConfig, &'static str), CommandError> {
+    let sp = &s.settings.speech;
+    let local = s.services.stt_local.clone();
+    let whisper_ready = local
+        .as_ref()
+        .is_some_and(|l| l.installed(&sp.whisper_model));
+    let engine = match sp.stt_engine.trim().to_ascii_lowercase().as_str() {
+        "whisper" => "whisper",
+        "windows" => "windows",
+        "server" => "server",
+        _ if sp.has_stt_server() => "server",
+        _ if whisper_ready => "whisper",
+        _ => "windows",
+    };
+    let missing = |m: &str| CommandError::Failed(m.into());
+    match engine {
+        "server" => {
+            if !sp.has_stt_server() {
+                return Err(missing(
+                    "set the speech-to-text server URL in Settings > Speech",
+                ));
+            }
+            let stt = s
+                .services
+                .stt
+                .clone()
+                .ok_or_else(|| missing("no speech-to-text client available"))?;
+            Ok((stt, sp.stt_config(), "server"))
+        }
+        "whisper" => {
+            let l = local.ok_or_else(|| missing("built-in Whisper is not available"))?;
+            if !whisper_ready {
+                return Err(missing(&format!(
+                    "download the Whisper {} model in Settings > Speech first",
+                    sp.whisper_model
+                )));
+            }
+            let cfg = SpeechConfig {
+                model: sp.whisper_model.clone(),
+                ..SpeechConfig::default()
+            };
+            let stt: Arc<dyn SpeechToText> = l;
+            Ok((stt, cfg, "whisper"))
+        }
+        _ => {
+            let stt = s.services.stt_fallback.clone().ok_or_else(|| {
+                missing("no speech-to-text available: download Whisper or set a server in Settings > Speech")
+            })?;
+            Ok((stt, SpeechConfig::default(), "windows"))
+        }
+    }
+}
+
+fn models(s: &mut Session, p: &Value) -> CmdResult {
+    let _ = Args::new(p, &[])?;
+    let l = s
+        .services
+        .stt_local
+        .clone()
+        .ok_or_else(|| CommandError::Disabled("built-in Whisper is not available".into()))?;
+    let engine = pick_stt(s).map(|(_, _, e)| e).unwrap_or("none");
+    Ok(json!({
+        "models": l.models(),
+        "selected": s.settings.speech.whisper_model,
+        "engine": engine,
+    }))
+}
+
+fn model_download(s: &mut Session, p: &Value) -> CmdResult {
+    let a = Args::new(p, &["model"])?;
+    let l = s
+        .services
+        .stt_local
+        .clone()
+        .ok_or_else(|| CommandError::Disabled("built-in Whisper is not available".into()))?;
+    let model = a
+        .opt_str("model")?
+        .map_or_else(|| s.settings.speech.whisper_model.clone(), str::to_string);
+    if !l.models().iter().any(|m| m.name == model) {
+        return Err(CommandError::Params(format!(
+            "unknown model {model} (tiny, base, small)"
+        )));
+    }
+    spawn_job(s, "downloading", move |sh| {
+        let mb = |b: u64| u32::try_from(b / 1_048_576).unwrap_or(u32::MAX);
+        l.download(&model, &|done, total| {
+            sh.set_progress(mb(done), mb(total).max(mb(done)).max(1));
+        })
+        .map_err(|e| TutorError::Record(e.to_string()))?;
+        Ok(json!({ "downloaded": model }))
+    })
+}
+
 fn transcribe(s: &mut Session, p: &Value) -> CmdResult {
     let a = Args::new(p, &["path", "language"])?;
     let path = video_path(&a)?;
+    let (stt, cfg, _) = pick_stt(s)?;
     let sp = &s.settings.speech;
-    let stt = if sp.uses_os_stt() {
-        s.services.stt_fallback.clone()
-    } else {
-        s.services.stt.clone()
-    }
-    .ok_or_else(|| {
-        CommandError::Failed(
-            "no speech-to-text available: set a server in Settings > Speech".into(),
-        )
-    })?;
-    let cfg = sp.stt_config();
     let language = a
         .opt_str("language")?
         .map(str::to_string)
@@ -435,6 +522,18 @@ pub fn specs() -> Vec<CommandSpec> {
             transcribe,
         ),
         c(
+            "speech.models",
+            "Speech Models",
+            r#"{} -> {models:[{name,size_mb,note,installed}],selected,engine}"#,
+            models,
+        ),
+        c(
+            "speech.model.download",
+            "Download Speech Model",
+            r#"{"model"?:"tiny"|"base"|"small" (default from Settings)} -> background job (tutor.wait)"#,
+            model_download,
+        ),
+        c(
             "video.captions.get",
             "Get Subtitles",
             r#"{"path":str,"srt"?:bool}"#,
@@ -609,6 +708,72 @@ mod tests {
         assert_eq!(st["running"], false, "{st}");
         assert!(st["error"].is_null(), "{st}");
         st["result"].clone()
+    }
+
+    struct FakeLocal(Mutex<bool>);
+    impl SpeechToText for FakeLocal {
+        fn transcribe(
+            &self,
+            _: &[u8],
+            _: Option<&str>,
+            cfg: &SpeechConfig,
+        ) -> Result<Transcript, RecordError> {
+            Ok(Transcript {
+                language: "en".into(),
+                text: cfg.model.clone(),
+                words: Vec::new(),
+            })
+        }
+    }
+    impl screenit_record::speech::LocalSpeech for FakeLocal {
+        fn models(&self) -> Vec<screenit_record::speech::LocalModel> {
+            vec![screenit_record::speech::LocalModel {
+                name: "base".into(),
+                size_mb: 1,
+                note: String::new(),
+                installed: *self.0.lock().unwrap(),
+            }]
+        }
+        fn installed(&self, m: &str) -> bool {
+            m == "base" && *self.0.lock().unwrap()
+        }
+        fn download(&self, _: &str, progress: &dyn Fn(u64, u64)) -> Result<(), RecordError> {
+            progress(1, 1);
+            *self.0.lock().unwrap() = true;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_engine_follows_settings_and_what_is_downloaded() {
+        let (mut s, _) = session();
+        s.services.stt_fallback = Some(Arc::new(screenit_testkit::FakeStt(None)));
+        let local = Arc::new(FakeLocal(Mutex::new(false)));
+        s.services.stt_local = Some(local.clone());
+        assert_eq!(pick_stt(&s).unwrap().2, "server");
+        s.settings.speech.stt_url.clear();
+        assert_eq!(pick_stt(&s).unwrap().2, "windows");
+        s.settings.speech.stt_engine = "whisper".into();
+        assert!(pick_stt(&s).is_err(), "not downloaded yet");
+        assert!(
+            s.dispatch("speech.model.download", &json!({"model": "huge"}))
+                .is_err()
+        );
+        s.dispatch("speech.model.download", &json!({})).unwrap();
+        assert_eq!(wait(&mut s)["downloaded"], "base");
+        let (_, cfg, e) = pick_stt(&s).unwrap();
+        assert_eq!((e, cfg.model.as_str()), ("whisper", "base"));
+        s.settings.speech.stt_engine = "auto".into();
+        assert_eq!(pick_stt(&s).unwrap().2, "whisper");
+        s.settings.speech.stt_engine = "windows".into();
+        assert_eq!(pick_stt(&s).unwrap().2, "windows");
+        s.settings.speech.stt_engine = "server".into();
+        assert!(pick_stt(&s).is_err(), "no URL");
+        let m = s.dispatch("speech.models", &json!({})).unwrap();
+        assert_eq!(m["models"][0]["installed"], true, "{m}");
+        let none = Session::new(crate::Services::default());
+        let mut none = none;
+        assert!(none.dispatch("speech.models", &json!({})).is_err());
     }
 
     #[test]

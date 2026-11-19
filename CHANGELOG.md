@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.32
+
+- Built-in Whisper transcription: download a model once in **Settings > Speech > Transcription** (tiny, base or small) and Transcribe works offline with real accuracy, punctuation and many languages. **Transcribe with** picks Automatic, Whisper, the Windows recognizer or a speech server.
+
 ## 0.2.31
 
 - New **Steps** row in the editor's Speech area: add Reduce noise, Transcribe, Cut silences and Burn subtitles in any order and run them in one go. Each step works on the previous result; a transcript is made automatically when a later step needs one; only the final video is kept.

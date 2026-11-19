@@ -12,7 +12,32 @@ These run inside screenIt with nothing else installed:
 | Cut silences | Editor, Speech row, **Cut silences** | Finds quiet stretches in the recording's own sound. |
 | Reduce noise | Editor, Speech row, **Reduce noise** | Saves `clip-clean.mp4`. |
 | Narration with the Windows voice | `video.narrate` | Used when the text-to-speech URL is empty. |
+| **Transcribe** with built-in Whisper | Editor, Speech row | After a one-time model download (see below). Offline, accurate. |
 | **Transcribe** with the Windows recognizer | Editor, Speech row | Used when the speech-to-text URL is empty (or the word `windows`). Offline, basic accuracy, only the languages installed under Settings > Time & language > Speech. |
+
+## Built-in Whisper (recommended)
+
+screenIt can transcribe on your PC with OpenAI's Whisper, offline, after a one-time download:
+
+1. Open **Settings > Speech**.
+2. Under **Transcription** pick a **Whisper model** and press **Download**:
+   - `tiny` (151 MB): fastest, fine for clear English.
+   - `base` (290 MB): good balance; the default.
+   - `small` (967 MB): most accurate, best for accents and Arabic; slower.
+3. Leave **Transcribe with** on **Automatic** (or pick **Built-in Whisper**).
+
+Models are stored in `%LOCALAPPDATA%\screenIt\models`. Set **Spoken language** (`en`, `ar`)
+to skip language detection. It runs on the CPU; a 10-minute recording takes roughly a minute or
+two with `base` on a modern PC.
+
+**Transcribe with** choices:
+
+| Choice | Uses |
+|---|---|
+| Automatic | the speech server when its URL is set, else Whisper once downloaded, else the Windows recognizer |
+| Built-in Whisper | Whisper; asks you to download the model first |
+| Windows recognizer | the old built-in Windows engine: no download, basic accuracy |
+| Speech server | the server URL below |
 
 ## Several steps in a row
 
@@ -86,6 +111,8 @@ All of these live in `%LOCALAPPDATA%\screenIt\settings.json` under `speech`:
 |---|---|---|
 | `stt_url` | speech-to-text base URL, ending in `/v1`; empty or `windows` uses the built-in Windows recognizer | empty (Windows recognizer) |
 | `stt_model` | model name sent to the server | empty |
+| `stt_engine` | `auto`, `whisper`, `windows` or `server` | `auto` |
+| `whisper_model` | built-in Whisper model: `tiny`, `base`, `small` | `base` |
 | `stt_language` | language hint (`en`, `ar`) | empty (detect) |
 | `tts_url` | text-to-speech base URL; empty or the word `windows` uses the built-in Windows voice | empty (Windows voice) |
 | `tts_model`, `tts_voice` | model and voice for narration | empty |

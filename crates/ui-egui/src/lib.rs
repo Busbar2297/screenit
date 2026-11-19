@@ -221,6 +221,9 @@ pub struct UiApp {
     pub(crate) llm_models: Vec<String>,
     pub(crate) llm_msg: String,
     pub(crate) speech_msg: String,
+    /// A Whisper model download is running (shared background job).
+    pub(crate) model_dl: bool,
+    pub(crate) model_msg: String,
     pub(crate) speech_rx: Option<Receiver<Result<usize, String>>>,
     pub(crate) llm_rx: Option<Receiver<Result<Vec<String>, String>>>,
     pub(crate) ocr_rx: Option<Receiver<Result<screenit_engine::OcrOutput, String>>>,
@@ -306,6 +309,8 @@ impl UiApp {
             llm_models: Vec::new(),
             llm_msg: String::new(),
             speech_msg: String::new(),
+            model_dl: false,
+            model_msg: String::new(),
             speech_rx: None,
             llm_rx: None,
             ocr_rx: None,

@@ -48,6 +48,23 @@ pub trait SpeechToText: Send + Sync {
     ) -> Result<Transcript, RecordError>;
 }
 
+/// A downloadable on-device model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalModel {
+    pub name: String,
+    pub size_mb: u64,
+    pub note: String,
+    pub installed: bool,
+}
+
+/// Speech to text that runs on this PC once its model is downloaded (`cfg.model` picks it).
+pub trait LocalSpeech: SpeechToText {
+    fn models(&self) -> Vec<LocalModel>;
+    fn installed(&self, model: &str) -> bool;
+    /// Fetch the model's files; `progress(done, total)` in bytes.
+    fn download(&self, model: &str, progress: &dyn Fn(u64, u64)) -> Result<(), RecordError>;
+}
+
 /// Text to speech. Returns interleaved 48 kHz stereo 16-bit samples.
 pub trait TextToSpeech: Send + Sync {
     fn speak(&self, text: &str, cfg: &SpeechConfig) -> Result<Vec<i16>, RecordError>;
